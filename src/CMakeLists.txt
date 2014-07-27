@@ -46,6 +46,7 @@ SET(HEADERS_LIST
 	dynamic_aligning_allocator.hpp
 	thread_pool.hpp
 	tuning.hpp
+	quadmath.hpp
 )
 
 SET(DETAIL_HEADERS_LIST

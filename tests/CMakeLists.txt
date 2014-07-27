@@ -42,6 +42,11 @@ ADD_PIRANHA_TESTCASE(polynomial_term)
 ADD_PIRANHA_TESTCASE(power_series)
 ADD_PIRANHA_TESTCASE(print_coefficient)
 ADD_PIRANHA_TESTCASE(print_tex_coefficient)
+IF(ENABLE_QUADMATH)
+# Need to give it a funky name otherwise CMake gets confused
+# with libquadmath when it is linked in directly as "quadmath".
+ADD_PIRANHA_TESTCASE(quadmath_)
+ENDIF()
 ADD_PIRANHA_TESTCASE(rational)
 ADD_PIRANHA_TESTCASE(real)
 ADD_PIRANHA_TESTCASE(real_trigonometric_kronecker_monomial)

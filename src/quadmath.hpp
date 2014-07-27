@@ -18,35 +18,52 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef PIRANHA_CONFIG_HPP
-#define PIRANHA_CONFIG_HPP
+#ifndef PIRANHA_QUADMATH_HPP
+#define PIRANHA_QUADMATH_HPP
 
-@PIRANHA_PTHREAD_AFFINITY@
-@PIRANHA_POSIX_MEMALIGN@
-@PIRANHA_VERSION@
-@PIRANHA_SYSTEM_LOGICAL_PROCESSOR_INFORMATION@
-@PIRANHA_HAVE_UINT128_T@
-@PIRANHA_HAVE_QUADMATH@
+// Need to include this first in order to check whether quadmath
+// support was enabled.
+#include "config.hpp"
 
-#include <cassert>
+#if defined(PIRANHA_HAVE_QUADMATH)
 
-#define piranha_assert assert
+#include <iostream>
+#include <quadmath.h>
+#include <stdexcept>
 
-// NOTE: clang has to go first, as it might define __GNUC__ internally.
-// Same thing could happen with ICC.
-#if defined(__clang__)
-	#include "detail/config_clang.hpp"
-#elif defined(__GNUC__)
-	#include "detail/config_gcc.hpp"
-#else
-	// NOTE: addidtional compiler configurations go here or in separate file as above.
-	#define likely(x) (x)
-	#define unlikely(x) (x)
+#include "exceptions.hpp"
+
+inline __float128 operator "" _Q(const char *s)
+{
+	return ::strtoflt128(s,nullptr);
+}
+
+inline __float128 operator "" _q(const char *s)
+{
+	return ::strtoflt128(s,nullptr);
+}
+
+inline std::ostream &operator<<(std::ostream &os, const __float128 &x)
+{
+	// Plenty of buffer.
+	char buf[128u];
+	// Check that our assumption is correct. This should be converted to
+	// a string and passed into the format string really, but for now this
+	// will do.
+	static_assert(33 == FLT128_DIG,"Invalid value for FLT128_DIG.");
+	// NOTE: here we use 32 because for printf this is the number of digits past the decimal point,
+	// wherease FLT128_DIG is the number of total digits in the mantissa.
+	const int retval = ::quadmath_snprintf(buf,sizeof(buf),"%.32Qe",x);
+	if (unlikely(retval < 0)) {
+		piranha_throw(std::invalid_argument,"quadmath_snprintf() returned an error");
+	}
+	if (unlikely(static_cast<unsigned>(retval) >= sizeof(buf))) {
+		piranha_throw(std::invalid_argument,"quadmath_snprintf() returned a truncated output");
+	}
+	os << buf;
+	return os;
+}
+
 #endif
-
-// Ugh.
-// http://web.archiveorange.com/archive/v/NDiIbUvkEafCV0VHMIwL
-#include <boost/integer_traits.hpp>
-static_assert(boost::integer_traits<long long>::const_max >= 0,"Buggy integer_traits implementation: please update the Boost libraries.");
 
 #endif

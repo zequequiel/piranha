@@ -18,35 +18,33 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef PIRANHA_CONFIG_HPP
-#define PIRANHA_CONFIG_HPP
+#include "../src/quadmath.hpp"
 
-@PIRANHA_PTHREAD_AFFINITY@
-@PIRANHA_POSIX_MEMALIGN@
-@PIRANHA_VERSION@
-@PIRANHA_SYSTEM_LOGICAL_PROCESSOR_INFORMATION@
-@PIRANHA_HAVE_UINT128_T@
-@PIRANHA_HAVE_QUADMATH@
+#define BOOST_TEST_MODULE quadmath_test
+#include <boost/test/unit_test.hpp>
 
-#include <cassert>
+#include "../src/environment.hpp"
+#include "../src/math.hpp"
 
-#define piranha_assert assert
+using namespace piranha;
 
-// NOTE: clang has to go first, as it might define __GNUC__ internally.
-// Same thing could happen with ICC.
-#if defined(__clang__)
-	#include "detail/config_clang.hpp"
-#elif defined(__GNUC__)
-	#include "detail/config_gcc.hpp"
-#else
-	// NOTE: addidtional compiler configurations go here or in separate file as above.
-	#define likely(x) (x)
-	#define unlikely(x) (x)
-#endif
+BOOST_AUTO_TEST_CASE(quadmath_io_test)
+{
+	environment env;
+	__float128 x = 1.3_Q;
+	__float128 y = 1.3f;
+	__float128 z = 1.3l;
+	std::cout << x << '\n';
+	std::cout << y << '\n';
+	std::cout << z << '\n';
+}
 
-// Ugh.
-// http://web.archiveorange.com/archive/v/NDiIbUvkEafCV0VHMIwL
-#include <boost/integer_traits.hpp>
-static_assert(boost::integer_traits<long long>::const_max >= 0,"Buggy integer_traits implementation: please update the Boost libraries.");
-
-#endif
+BOOST_AUTO_TEST_CASE(quadmath_math_test)
+{
+	__float128 a, b, c;
+	a = 0.5_Q;
+	b = 1.5_q;
+	c = 2.5_Q;
+	math::multiply_accumulate(a,b,c);
+	BOOST_CHECK(a == 4.25_q);
+}

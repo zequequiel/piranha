@@ -28,7 +28,7 @@ OPTION(BUILD_PYRANHA "Build Pyranha, the Python bindings for Piranha." OFF)
 OPTION(USE_TCMALLOC "Enable use of TCMalloc in release builds." OFF)
 
 IF(CMAKE_COMPILER_IS_GNUCXX)
-	# Support for libquadmath,available only in GCC.
+	# Support for libquadmath, available only in GCC.
 	OPTION(ENABLE_QUADMATH "Enable support for libquadmath, the GCC quad-precision math library." OFF)
 ENDIF()
 
@@ -114,6 +114,11 @@ IF(ENABLE_QUADMATH)
 	MESSAGE(STATUS "Enabling support for libquadmath.")
 	FIND_PACKAGE(Quadmath REQUIRED)
 	MESSAGE(STATUS "libquadmath library is: ${QUADMATH_LIBRARIES}")
+	SET(PIRANHA_HAVE_QUADMATH "#define PIRANHA_HAVE_QUADMATH")
+	SET(MANDATORY_LIBRARIES ${MANDATORY_LIBRARIES} ${QUADMATH_LIBRARIES})
+	# Enable quadmath literals.
+	# NOTE: this does not seem to work at the moment, check.
+	# PIRANHA_CHECK_ENABLE_CXX_FLAG(-fext-numeric-literals)
 ENDIF()
 
 FIND_PROGRAM(PIRANHA_GIT_EXECUTABLE "git" DOC "Path to the git binary.")

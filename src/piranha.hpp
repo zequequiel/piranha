@@ -154,6 +154,7 @@ namespace detail {}
 #include "power_series.hpp"
 #include "print_coefficient.hpp"
 #include "print_tex_coefficient.hpp"
+#include "quadmath.hpp"
 #include "rational.hpp"
 #include "real.hpp"
 #include "real_trigonometric_kronecker_monomial.hpp"
