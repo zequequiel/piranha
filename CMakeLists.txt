@@ -27,6 +27,11 @@ OPTION(BUILD_PYRANHA "Build Pyranha, the Python bindings for Piranha." OFF)
 # Use TCMalloc as allocator.
 OPTION(USE_TCMALLOC "Enable use of TCMalloc in release builds." OFF)
 
+IF(CMAKE_COMPILER_IS_GNUCXX)
+	# Support for libquadmath,available only in GCC.
+	OPTION(ENABLE_QUADMATH "Enable support for libquadmath, the GCC quad-precision math library." OFF)
+ENDIF()
+
 # Initialise (empty) list of libraries to link against.
 SET(MANDATORY_LIBRARIES "")
 
@@ -103,6 +108,13 @@ IF(USE_TCMALLOC AND CMAKE_BUILD_TYPE STREQUAL "Release")
 	ENDIF(NOT TCMALLOC_LIBRARY)
 	SET(MANDATORY_LIBRARIES ${MANDATORY_LIBRARIES} ${TCMALLOC_LIBRARY})
 ENDIF(USE_TCMALLOC AND CMAKE_BUILD_TYPE STREQUAL "Release")
+
+# libquadmath setup.
+IF(ENABLE_QUADMATH)
+	MESSAGE(STATUS "Enabling support for libquadmath.")
+	FIND_PACKAGE(Quadmath REQUIRED)
+	MESSAGE(STATUS "libquadmath library is: ${QUADMATH_LIBRARIES}")
+ENDIF()
 
 FIND_PROGRAM(PIRANHA_GIT_EXECUTABLE "git" DOC "Path to the git binary.")
 IF(PIRANHA_GIT_EXECUTABLE)
