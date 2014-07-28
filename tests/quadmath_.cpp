@@ -25,6 +25,9 @@
 
 #include "../src/environment.hpp"
 #include "../src/math.hpp"
+#include "../src/print_coefficient.hpp"
+#include "../src/print_tex_coefficient.hpp"
+#include "../src/type_traits.hpp"
 
 using namespace piranha;
 
@@ -47,4 +50,19 @@ BOOST_AUTO_TEST_CASE(quadmath_math_test)
 	c = 2.5_Q;
 	math::multiply_accumulate(a,b,c);
 	BOOST_CHECK(a == 4.25_q);
+	BOOST_CHECK(has_multiply_accumulate<__float128>::value);
+	BOOST_CHECK((is_exponentiable<__float128,__float128>::value));
+	BOOST_CHECK((is_exponentiable<__float128,int>::value));
+	BOOST_CHECK((is_exponentiable<__float128,double>::value));
+	BOOST_CHECK((is_exponentiable<__float128,long double>::value));
+	BOOST_CHECK((!is_exponentiable<float,__float128>::value));
+	std::cout << math::pow(3.5_Q,-4.3_Q) << '\n';
+	std::cout << math::pow(3.5_Q,-4.3) << '\n';
+}
+
+BOOST_AUTO_TEST_CASE(quadmath_type_traits_test)
+{
+	BOOST_CHECK(has_print_coefficient<__float128>::value);
+	BOOST_CHECK(has_print_tex_coefficient<__float128>::value);
+	BOOST_CHECK(is_cf<__float128>::value);
 }

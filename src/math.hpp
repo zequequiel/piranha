@@ -76,6 +76,31 @@ inline auto float_pow_impl(const T &x, const U &y, typename std::enable_if<
 	return std::pow(x,y);
 }
 
+#if defined(PIRANHA_HAVE_QUADMATH)
+
+template <typename U>
+inline auto float128_pow_impl(const __float128 &x, const U &n, typename std::enable_if<
+	std::is_integral<U>::value>::type * = nullptr) -> decltype(::powq(x,boost::numeric_cast<int>(n)))
+{
+	return ::powq(x,boost::numeric_cast<int>(n));
+}
+
+template <typename U>
+inline auto float128_pow_impl(const __float128 &x, const U &n, typename std::enable_if<
+	std::is_same<integer,U>::value>::type * = nullptr) -> decltype(::powq(x,static_cast<int>(n)))
+{
+	return ::powq(x,static_cast<int>(n));
+}
+
+template <typename U>
+inline auto float128_pow_impl(const __float128 &x, const U &y, typename std::enable_if<
+	std::is_floating_point<U>::value || std::is_same<U,__float128>::value>::type * = nullptr) -> decltype(::powq(x,y))
+{
+	return ::powq(x,y);
+}
+
+#endif
+
 }
 
 /// Math namespace.
@@ -352,6 +377,37 @@ struct pow_impl<T,U,typename std::enable_if<std::is_floating_point<T>::value &&
 		return detail::float_pow_impl(x,y);
 	}
 };
+
+#if defined(PIRANHA_HAVE_QUADMATH)
+
+/// Specialisation of the piranha::math::pow() functor for \p __float128 bases.
+/**
+ * This specialisation is activated when \p T is __float128 and \p U is either \p __float128, a floating-point type,
+ * an integral type or piranha::integer. The result will be computed via the <tt>powq()</tt> function.
+ */
+template <typename T, typename U>
+struct pow_impl<T,U,typename std::enable_if<std::is_same<T,__float128>::value &&
+	(std::is_same<U,__float128>::value || std::is_floating_point<U>::value || std::is_integral<U>::value || std::is_same<U,integer>::value)>::type>
+{
+	/// Call operator.
+	/**
+	 * The exponentiation will be computed via <tt>powq()</tt>. In case \p U2 is an integral type or piranha::integer,
+	 * \p y will be converted to \p int via <tt>boost::numeric_cast()</tt> or <tt>static_cast()</tt>.
+	 *
+	 * @param[in] x base.
+	 * @param[in] y exponent.
+	 *
+	 * @return \p x to the power of \p y.
+	 *
+	 * @throws unspecified any exception resulting from numerical conversion failures in <tt>boost::numeric_cast()</tt> or <tt>static_cast()</tt>.
+	 */
+	auto operator()(const T &x, const U &y) const -> decltype(detail::float128_pow_impl(x,y))
+	{
+		return detail::float128_pow_impl(x,y);
+	}
+};
+
+#endif
 
 /// Exponentiation.
 /**
