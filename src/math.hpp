@@ -51,36 +51,6 @@
 namespace piranha
 {
 
-namespace detail
-{
-
-#if defined(PIRANHA_HAVE_QUADMATH)
-
-template <typename U>
-inline auto float128_pow_impl(const __float128 &x, const U &n, typename std::enable_if<
-	std::is_integral<U>::value>::type * = nullptr) -> decltype(::powq(x,boost::numeric_cast<int>(n)))
-{
-	return ::powq(x,boost::numeric_cast<int>(n));
-}
-
-template <typename U>
-inline auto float128_pow_impl(const __float128 &x, const U &n, typename std::enable_if<
-	std::is_same<integer,U>::value>::type * = nullptr) -> decltype(::powq(x,static_cast<int>(n)))
-{
-	return ::powq(x,static_cast<int>(n));
-}
-
-template <typename U>
-inline auto float128_pow_impl(const __float128 &x, const U &y, typename std::enable_if<
-	std::is_floating_point<U>::value || std::is_same<U,__float128>::value>::type * = nullptr) -> decltype(::powq(x,y))
-{
-	return ::powq(x,y);
-}
-
-#endif
-
-}
-
 /// Math namespace.
 /**
  * Namespace for general-purpose mathematical functions.
@@ -284,7 +254,7 @@ struct multiply_accumulate_impl<T,T,T,typename std::enable_if<std::is_same<T,__f
 	 * @param[in] y first argument.
 	 * @param[in] z second argument.
 	 *
-	 * @return <tt>x = ::fmaq(y,z,x)</tt>.
+	 * @return <tt>x = fmaq(y,z,x)</tt>.
 	 */
 	template <typename U>
 	auto operator()(U &x, const U &y, const U &z) const -> decltype(x = ::fmaq(y,z,x))
@@ -357,30 +327,44 @@ struct pow_impl<T,U,typename std::enable_if<std::is_arithmetic<T>::value && std:
 
 #if defined(PIRANHA_HAVE_QUADMATH)
 
-/// Specialisation of the piranha::math::pow() functor for \p __float128 bases.
+}
+
+namespace detail
+{
+
+// Enabler for the __float128 exponentiation method.
+template <typename T, typename U>
+using pow128_enabler = typename std::enable_if<
+		(std::is_same<T,__float128>::value && std::is_same<U,__float128>::value) ||
+		(std::is_same<T,__float128>::value && std::is_arithmetic<U>::value) ||
+		(std::is_same<U,__float128>::value && std::is_arithmetic<T>::value)
+	>::type;
+
+}
+
+namespace math
+{
+
+/// Specialisation of the piranha::math::pow() functor for \p __float128.
 /**
- * This specialisation is activated when \p T is __float128 and \p U is either \p __float128, a floating-point type,
- * an integral type or piranha::integer. The result will be computed via the <tt>powq()</tt> function.
+ * This specialisation is activated when one of the two types is \p __float128 and the other is either
+ * \p __float128 or an arithmetic type.
  */
 template <typename T, typename U>
-struct pow_impl<T,U,typename std::enable_if<std::is_same<T,__float128>::value &&
-	(std::is_same<U,__float128>::value || std::is_floating_point<U>::value || std::is_integral<U>::value || std::is_same<U,integer>::value)>::type>
+struct pow_impl<T,U,detail::pow128_enabler<T,U>>
 {
 	/// Call operator.
 	/**
-	 * The exponentiation will be computed via <tt>powq()</tt>. In case \p U2 is an integral type or piranha::integer,
-	 * \p y will be converted to \p int via <tt>boost::numeric_cast()</tt> or <tt>static_cast()</tt>.
+	 * The exponentiation will be computed via <tt>powq()</tt>.
 	 *
 	 * @param[in] x base.
 	 * @param[in] y exponent.
 	 *
 	 * @return \p x to the power of \p y.
-	 *
-	 * @throws unspecified any exception resulting from numerical conversion failures in <tt>boost::numeric_cast()</tt> or <tt>static_cast()</tt>.
 	 */
-	auto operator()(const T &x, const U &y) const -> decltype(detail::float128_pow_impl(x,y))
+	auto operator()(const T &x, const U &y) const noexcept -> decltype(::powq(x,y))
 	{
-		return detail::float128_pow_impl(x,y);
+		return ::powq(x,y);
 	}
 };
 

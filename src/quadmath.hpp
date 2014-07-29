@@ -33,11 +33,6 @@
 
 #include "exceptions.hpp"
 
-inline __float128 operator "" _Q(const char *s)
-{
-	return ::strtoflt128(s,nullptr);
-}
-
 inline __float128 operator "" _q(const char *s)
 {
 	return ::strtoflt128(s,nullptr);
