@@ -43,7 +43,6 @@
 #include "detail/math_tt_fwd.hpp"
 #include "detail/sfinae_types.hpp"
 #include "exceptions.hpp"
-#include "quadmath.hpp"
 #include "symbol.hpp"
 #include "symbol_set.hpp"
 #include "type_traits.hpp"
@@ -240,31 +239,6 @@ struct multiply_accumulate_impl<T,T,T,typename std::enable_if<std::is_floating_p
 
 #endif
 
-#if defined(PIRANHA_HAVE_QUADMATH)
-
-/// Specialisation of the implementation of piranha::math::multiply_accumulate() for \p __float128.
-template <typename T>
-struct multiply_accumulate_impl<T,T,T,typename std::enable_if<std::is_same<T,__float128>::value>::type>
-{
-	/// Call operator.
-	/**
-	 * This implementation will use the \p fmaq function.
-	 *
-	 * @param[in,out] x target value for accumulation.
-	 * @param[in] y first argument.
-	 * @param[in] z second argument.
-	 *
-	 * @return <tt>x = fmaq(y,z,x)</tt>.
-	 */
-	template <typename U>
-	auto operator()(U &x, const U &y, const U &z) const -> decltype(x = ::fmaq(y,z,x))
-	{
-		return x = ::fmaq(y,z,x);
-	}
-};
-
-#endif
-
 /// Multiply-accumulate.
 /**
  * \note
@@ -324,51 +298,6 @@ struct pow_impl<T,U,typename std::enable_if<std::is_arithmetic<T>::value && std:
 		return std::pow(x,y);
 	}	
 };
-
-#if defined(PIRANHA_HAVE_QUADMATH)
-
-}
-
-namespace detail
-{
-
-// Enabler for the __float128 exponentiation method.
-template <typename T, typename U>
-using pow128_enabler = typename std::enable_if<
-		(std::is_same<T,__float128>::value && std::is_same<U,__float128>::value) ||
-		(std::is_same<T,__float128>::value && std::is_arithmetic<U>::value) ||
-		(std::is_same<U,__float128>::value && std::is_arithmetic<T>::value)
-	>::type;
-
-}
-
-namespace math
-{
-
-/// Specialisation of the piranha::math::pow() functor for \p __float128.
-/**
- * This specialisation is activated when one of the two types is \p __float128 and the other is either
- * \p __float128 or an arithmetic type.
- */
-template <typename T, typename U>
-struct pow_impl<T,U,detail::pow128_enabler<T,U>>
-{
-	/// Call operator.
-	/**
-	 * The exponentiation will be computed via <tt>powq()</tt>.
-	 *
-	 * @param[in] x base.
-	 * @param[in] y exponent.
-	 *
-	 * @return \p x to the power of \p y.
-	 */
-	auto operator()(const T &x, const U &y) const noexcept -> decltype(::powq(x,y))
-	{
-		return ::powq(x,y);
-	}
-};
-
-#endif
 
 /// Exponentiation.
 /**
