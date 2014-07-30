@@ -60,9 +60,9 @@ struct print_coefficient_impl<T,typename std::enable_if<std::is_same<T,__float12
 		// a string and passed into the format string really, but for now this
 		// will do.
 		static_assert(33 == FLT128_DIG,"Invalid value for FLT128_DIG.");
-		// NOTE: here we use 32 because for printf this is the number of digits past the decimal point,
-		// wherease FLT128_DIG is the number of total digits in the mantissa.
-		const int retval = ::quadmath_snprintf(buf,sizeof(buf),"%.32Qe",cf);
+		// NOTE: here we use 34 because constants in quadmath.h are defined with that
+		// many digits after the decimal separator. Not sure if the last one could be garbage though.
+		const int retval = ::quadmath_snprintf(buf,sizeof(buf),"%.34Qe",cf);
 		if (unlikely(retval < 0)) {
 			piranha_throw(std::invalid_argument,"quadmath_snprintf() returned an error");
 		}

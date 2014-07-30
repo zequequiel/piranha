@@ -296,7 +296,7 @@ struct pow_impl<T,U,typename std::enable_if<std::is_arithmetic<T>::value && std:
 	auto operator()(const T2 &x, const U2 &y) const noexcept -> decltype(std::pow(x,y))
 	{
 		return std::pow(x,y);
-	}	
+	}
 };
 
 /// Exponentiation.
