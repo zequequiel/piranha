@@ -30,33 +30,49 @@
 #include <iostream>
 #include <quadmath.h>
 #include <stdexcept>
+#include <type_traits>
 
 #include "exceptions.hpp"
+#include "print_coefficient.hpp"
 
-inline __float128 operator "" _q(const char *s)
+namespace piranha
+{
+
+inline namespace literals
+{
+
+inline __float128 operator "" _qf(const char *s)
 {
 	return ::strtoflt128(s,nullptr);
 }
 
-inline std::ostream &operator<<(std::ostream &os, const __float128 &x)
+}
+
+template <typename T>
+struct print_coefficient_impl<T,typename std::enable_if<std::is_same<T,__float128>::value>::type>
 {
-	// Plenty of buffer.
-	char buf[128u];
-	// Check that our assumption is correct. This should be converted to
-	// a string and passed into the format string really, but for now this
-	// will do.
-	static_assert(33 == FLT128_DIG,"Invalid value for FLT128_DIG.");
-	// NOTE: here we use 32 because for printf this is the number of digits past the decimal point,
-	// wherease FLT128_DIG is the number of total digits in the mantissa.
-	const int retval = ::quadmath_snprintf(buf,sizeof(buf),"%.32Qe",x);
-	if (unlikely(retval < 0)) {
-		piranha_throw(std::invalid_argument,"quadmath_snprintf() returned an error");
+	std::ostream &operator()(std::ostream &os, const __float128 &cf) const
+	{
+		// Plenty of buffer.
+		char buf[128u];
+		// Check that our assumption is correct. This should be converted to
+		// a string and passed into the format string really, but for now this
+		// will do.
+		static_assert(33 == FLT128_DIG,"Invalid value for FLT128_DIG.");
+		// NOTE: here we use 32 because for printf this is the number of digits past the decimal point,
+		// wherease FLT128_DIG is the number of total digits in the mantissa.
+		const int retval = ::quadmath_snprintf(buf,sizeof(buf),"%.32Qe",cf);
+		if (unlikely(retval < 0)) {
+			piranha_throw(std::invalid_argument,"quadmath_snprintf() returned an error");
+		}
+		if (unlikely(static_cast<unsigned>(retval) >= sizeof(buf))) {
+			piranha_throw(std::invalid_argument,"quadmath_snprintf() returned a truncated output");
+		}
+		os << buf;
+		return os;
 	}
-	if (unlikely(static_cast<unsigned>(retval) >= sizeof(buf))) {
-		piranha_throw(std::invalid_argument,"quadmath_snprintf() returned a truncated output");
-	}
-	os << buf;
-	return os;
+};
+
 }
 
 #endif
