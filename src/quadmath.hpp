@@ -74,32 +74,6 @@ struct print_coefficient_impl<T,typename std::enable_if<std::is_same<T,__float12
 	}
 };
 
-namespace math
-{
-
-/// Specialisation of the implementation of piranha::math::multiply_accumulate() for \p __float128.
-template <typename T>
-struct multiply_accumulate_impl<T,T,T,typename std::enable_if<std::is_same<T,__float128>::value>::type>
-{
-	/// Call operator.
-	/**
-	 * This implementation will use the \p fmaq function.
-	 *
-	 * @param[in,out] x target value for accumulation.
-	 * @param[in] y first argument.
-	 * @param[in] z second argument.
-	 *
-	 * @return <tt>x = fmaq(y,z,x)</tt>.
-	 */
-	template <typename U>
-	auto operator()(U &x, const U &y, const U &z) const -> decltype(x = ::fmaq(y,z,x))
-	{
-		return x = ::fmaq(y,z,x);
-	}
-};
-
-}
-
 namespace detail
 {
 
