@@ -42,7 +42,7 @@ namespace piranha
 inline namespace literals
 {
 
-inline __float128 operator "" _qf(const char *s)
+inline __float128 operator "" _f128(const char *s)
 {
 	return ::strtoflt128(s,nullptr);
 }
@@ -95,6 +95,7 @@ namespace math
  * This specialisation is activated when one of the two types is \p __float128 and the other is either
  * \p __float128 or an arithmetic type.
  */
+// TODO extension to integer, rational and real arguments.
 template <typename T, typename U>
 struct pow_impl<T,U,detail::pow128_enabler<T,U>>
 {
@@ -111,6 +112,62 @@ struct pow_impl<T,U,detail::pow128_enabler<T,U>>
 	{
 		return ::powq(x,y);
 	}
+};
+
+/// Specialisation of the piranha::math::cos() functor for \p __float128.
+template <typename T>
+struct cos_impl<T,typename std::enable_if<std::is_same<T,__float128>::value>::type>
+{
+	/// Call operator.
+	/**
+	 * The cosine will be computed via <tt>cosq()</tt>.
+	 * 
+	 * @param[in] x argument.
+	 * 
+	 * @return cosine of \p x.
+	 */
+	auto operator()(const T &x) const noexcept -> decltype(::cosq(x))
+	{
+		return ::cosq(x);
+	}
+};
+
+/// Specialisation of the piranha::math::sin() functor for \p __float128.
+template <typename T>
+struct sin_impl<T,typename std::enable_if<std::is_same<T,__float128>::value>::type>
+{
+	/// Call operator.
+	/**
+	 * The sine will be computed via <tt>sinq()</tt>.
+	 * 
+	 * @param[in] x argument.
+	 * 
+	 * @return sine of \p x.
+	 */
+	auto operator()(const T &x) const noexcept -> decltype(::sinq(x))
+	{
+		return ::sinq(x);
+	}
+};
+
+
+/// Specialisation of the piranha::math::abs() functor for \p __float128.
+template <typename T>
+struct abs_impl<T,typename std::enable_if<std::is_same<__float128,T>::value>::type>
+{
+	public:
+		/// Call operator.
+		/**
+		 * The implementation will use the <tt>fabsq()</tt> function.
+		 * 
+		 * @param[in] x input parameter.
+		 * 
+		 * @return absolute value of \p x.
+		 */
+		auto operator()(const T &x) const noexcept -> decltype(::fabsq(x))
+		{
+			return ::fabsq(x);
+		}
 };
 
 }

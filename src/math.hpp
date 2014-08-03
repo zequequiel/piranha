@@ -1232,6 +1232,8 @@ struct binomial_impl
 /**
  * This specialisation is activated when \p T is a floating-point type and \p U an integral type or piranha::integer.
  */
+// TODO as noted in piranha.hpp, this should really be done via gamma() for floating point. Treat this as if this was
+// an arithmetic operator wrt return value and promotion rules.
 template <typename T, typename U>
 struct binomial_impl<T,U,typename std::enable_if<std::is_floating_point<T>::value &&
 	(std::is_integral<U>::value || std::is_same<integer,U>::value)
