@@ -32,6 +32,9 @@ IF(CMAKE_COMPILER_IS_GNUCXX)
 	OPTION(ENABLE_QUADMATH "Enable support for libquadmath, the GCC quad-precision math library." OFF)
 ENDIF()
 
+# Support for Boost.Multiprecision.
+OPTION(ENABLE_BOOST_MULTIPRECISION "Enable support for Boost.Multiprecision." OFF)
+
 # Initialise (empty) list of libraries to link against.
 SET(MANDATORY_LIBRARIES "")
 
@@ -65,8 +68,13 @@ IF(BUILD_PYRANHA)
 	SET(REQUIRED_BOOST_LIBS ${REQUIRED_BOOST_LIBS} python)
 ENDIF(BUILD_PYRANHA)
 MESSAGE(STATUS "Required Boost libraries: ${REQUIRED_BOOST_LIBS}")
-# Timers are available since 1.48.0.
-FIND_PACKAGE(Boost 1.48.0 REQUIRED COMPONENTS "${REQUIRED_BOOST_LIBS}")
+IF(ENABLE_BOOST_MULTIPRECISION)
+	# BMP is there since 1.53.0.
+	FIND_PACKAGE(Boost 1.53.0 REQUIRED COMPONENTS "${REQUIRED_BOOST_LIBS}")
+ELSE()
+	# Timers are available since 1.48.0, use that version as baseline.
+	FIND_PACKAGE(Boost 1.48.0 REQUIRED COMPONENTS "${REQUIRED_BOOST_LIBS}")
+ENDIF()
 MESSAGE(STATUS "Detected Boost version: ${Boost_VERSION}")
 # Include system Boost headers.
 MESSAGE(STATUS "Boost include dirs: ${Boost_INCLUDE_DIRS}")
@@ -119,6 +127,11 @@ IF(ENABLE_QUADMATH)
 	# Enable quadmath literals.
 	# NOTE: this does not seem to work at the moment, check.
 	# PIRANHA_CHECK_ENABLE_CXX_FLAG(-fext-numeric-literals)
+ENDIF()
+
+# Boost.Multiprecision setup.
+IF(ENABLE_BOOST_MULTIPRECISION)
+	SET(PIRANHA_HAVE_BOOST_MULTIPRECISION "#define PIRANHA_HAVE_BOOST_MULTIPRECISION")
 ENDIF()
 
 FIND_PROGRAM(PIRANHA_GIT_EXECUTABLE "git" DOC "Path to the git binary.")

@@ -130,6 +130,7 @@ namespace detail {}
 
 #include "array_key.hpp"
 #include "base_term.hpp"
+#include "boost_multiprecision.hpp"
 #include "cache_aligning_allocator.hpp"
 #include "config.hpp"
 #include "debug_access.hpp"

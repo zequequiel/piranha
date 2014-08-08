@@ -18,36 +18,27 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef PIRANHA_CONFIG_HPP
-#define PIRANHA_CONFIG_HPP
+#include "../src/boost_multiprecision.hpp"
 
-@PIRANHA_PTHREAD_AFFINITY@
-@PIRANHA_POSIX_MEMALIGN@
-@PIRANHA_VERSION@
-@PIRANHA_SYSTEM_LOGICAL_PROCESSOR_INFORMATION@
-@PIRANHA_HAVE_UINT128_T@
-@PIRANHA_HAVE_QUADMATH@
-@PIRANHA_HAVE_BOOST_MULTIPRECISION@
+#define BOOST_TEST_MODULE boost_multiprecision_test
+#include <boost/test/unit_test.hpp>
 
-#include <cassert>
+#include "../src/environment.hpp"
+#include "../src/math.hpp"
+#include "../src/type_traits.hpp"
 
-#define piranha_assert assert
+using namespace piranha;
 
-// NOTE: clang has to go first, as it might define __GNUC__ internally.
-// Same thing could happen with ICC.
-#if defined(__clang__)
-	#include "detail/config_clang.hpp"
-#elif defined(__GNUC__)
-	#include "detail/config_gcc.hpp"
-#else
-	// NOTE: addidtional compiler configurations go here or in separate file as above.
-	#define likely(x) (x)
-	#define unlikely(x) (x)
-#endif
-
-// Ugh.
-// http://web.archiveorange.com/archive/v/NDiIbUvkEafCV0VHMIwL
-#include <boost/integer_traits.hpp>
-static_assert(boost::integer_traits<long long>::const_max >= 0,"Buggy integer_traits implementation: please update the Boost libraries.");
-
-#endif
+BOOST_AUTO_TEST_CASE(bmp_io_test)
+{
+	environment env;
+	bmp_static_float<33> x = 1.17f;
+	std::cout << x << '\n';
+	x = 1.17;
+	std::cout << x << '\n';
+	x = 1.17l;
+	std::cout << x << '\n';
+	math::multiply_accumulate(x,x,x);	
+	std::cout << x << '\n';
+	std::cout << is_cf<bmp_static_float<33>>::value << '\n';
+}

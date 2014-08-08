@@ -19,6 +19,9 @@ ENDMACRO(ADD_PIRANHA_PERFORMANCE_TESTCASE)
 
 ADD_PIRANHA_TESTCASE(array_key)
 ADD_PIRANHA_TESTCASE(base_term)
+IF(ENABLE_BOOST_MULTIPRECISION)
+	ADD_PIRANHA_TESTCASE(boost_multiprecision)
+ENDIF()
 ADD_PIRANHA_TESTCASE(cache_aligning_allocator)
 ADD_PIRANHA_TESTCASE(dynamic_aligning_allocator)
 ADD_PIRANHA_TESTCASE(echelon_size)
@@ -43,9 +46,9 @@ ADD_PIRANHA_TESTCASE(power_series)
 ADD_PIRANHA_TESTCASE(print_coefficient)
 ADD_PIRANHA_TESTCASE(print_tex_coefficient)
 IF(ENABLE_QUADMATH)
-# Need to give it a funky name otherwise CMake gets confused
-# with libquadmath when it is linked in directly as "quadmath".
-ADD_PIRANHA_TESTCASE(quadmath_)
+	# Need to give it a funky name otherwise CMake gets confused
+	# with libquadmath when it is linked in directly as "quadmath".
+	ADD_PIRANHA_TESTCASE(quadmath_)
 ENDIF()
 ADD_PIRANHA_TESTCASE(rational)
 ADD_PIRANHA_TESTCASE(real)
