@@ -252,10 +252,8 @@ BOOST_AUTO_TEST_CASE(math_pow_test)
 	BOOST_CHECK((std::is_same<decltype(math::pow(2.,2)),double>::value));
 	BOOST_CHECK((std::is_same<decltype(math::pow(2.f,2)),double>::value));
 	BOOST_CHECK((std::is_same<decltype(math::pow(2.f,char(2))),double>::value));
-	BOOST_CHECK((std::is_same<decltype(math::pow((unsigned long)(4),char(2))),double>::value));
 	BOOST_CHECK((is_exponentiable<double,double>::value));
 	BOOST_CHECK((is_exponentiable<double,unsigned short>::value));
-	BOOST_CHECK((is_exponentiable<char,unsigned short>::value));
 	BOOST_CHECK((is_exponentiable<double &,double>::value));
 	BOOST_CHECK((is_exponentiable<const double,double>::value));
 	BOOST_CHECK((is_exponentiable<double &,double &>::value));
@@ -336,7 +334,6 @@ BOOST_AUTO_TEST_CASE(math_integrate_test)
 	BOOST_CHECK(!piranha::is_integrable<int const &>::value);
 	BOOST_CHECK(!piranha::is_integrable<long>::value);
 	BOOST_CHECK(!piranha::is_integrable<double>::value);
-	BOOST_CHECK(!piranha::is_integrable<integer>::value);
 	BOOST_CHECK(!piranha::is_integrable<real>::value);
 	BOOST_CHECK(!piranha::is_integrable<rational>::value);
 	BOOST_CHECK(!piranha::is_integrable<std::string>::value);

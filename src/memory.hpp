@@ -256,7 +256,7 @@ inline bool alignment_check(const std::size_t &alignment)
  * @throws std::bad_alloc in case of memory allocation errors in multithreaded mode.
  * @throws unspecified any exception thrown by:
  * - the value initialisation of instances of type \p T,
- * - piranha::thread_pool::enqueue() and piranha::future_list::push_back(), only in multithread mode.
+ * - piranha::thread_pool::enqueue() and piranha::future_list::push_back(), only in multithreaded mode.
  */
 template <typename T, typename = typename std::enable_if<is_container_element<T>::value>::type>
 inline void parallel_value_init(T *ptr, const std::size_t &size, const unsigned &n_threads)
@@ -285,7 +285,8 @@ inline void parallel_value_init(T *ptr, const std::size_t &size, const unsigned 
 		// If the init was successful and we are in multithreaded mode, record
 		// the range that was inited.
 		if (rv != nullptr) {
-			(*rv)[static_cast<rv_size_type>(thread_idx)] = std::make_pair(orig_start,end);
+			(*rv)[static_cast<rv_size_type>(thread_idx)].first = orig_start;
+			(*rv)[static_cast<rv_size_type>(thread_idx)].second = end;
 		}
 	};
 	if (n_threads <= 1) {
@@ -364,6 +365,9 @@ inline void parallel_destroy(T *ptr, const std::size_t &size, const unsigned &n_
 		future_list<decltype(thread_pool::enqueue(0u,destroy_function,ptr,ptr))> f_list;
 		try {
 			d_ranges.resize(static_cast<rv_size_type>(n_threads),std::make_pair(ptr,ptr));
+			if (unlikely(d_ranges.size() != n_threads)) {
+				piranha_throw(std::bad_alloc,);
+			}
 		} catch (...) {
 			// Just perform the single-threaded version, and GTFO.
 			destroy_function(ptr,ptr + size);
@@ -418,8 +422,8 @@ class parallel_deleter
 			aligned_pfree(0u,static_cast<void *>(ptr));
 		}
 	private:
-		const std::size_t	m_size;
-		const unsigned		m_n_threads;
+		std::size_t	m_size;
+		unsigned	m_n_threads;
 };
 
 }
@@ -435,8 +439,8 @@ class parallel_deleter
  * destructor is called.
  *
  * \note
- * Due to the special semantics of the parallel deleter, the only valid write operation on the return value (beside destruction) is
- * \p std::unique_ptr::release().
+ * Due to the special semantics of the parallel deleter, the returned smart pointer cannot be reset with another arbitrary pointer
+ * without supplying a new deleter. To replace the managed object while supplying a new deleter as well, move semantics may be used.
  *
  * @param[in] size size of the array.
  * @param[in] n_threads number of threads to use.

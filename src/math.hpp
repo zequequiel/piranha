@@ -131,6 +131,9 @@ struct negate_impl
 {
 	/// Generic call operator.
 	/**
+	 * \note
+	 * This operator is enabled only if the expression <tt>x = -x</tt> is well-formed.
+	 * 
 	 * The body of the operator is equivalent to:
 	 @code
 	 return x = -x;
@@ -149,7 +152,7 @@ struct negate_impl
 	}
 	/// Call operator specialised for integral types.
 	template <typename U>
-	U &operator()(U &x, typename std::enable_if<std::is_integral<U>::value>::type * = nullptr) const
+	U &operator()(U &x, typename std::enable_if<std::is_integral<U>::value>::type * = nullptr) const noexcept
 	{
 		// NOTE: here we use the explicit static_cast to cope with integral promotions
 		// (e.g., in case of char).
@@ -273,18 +276,19 @@ template <typename T, typename U, typename Enable = void>
 struct pow_impl
 {};
 
-/// Specialisation of the piranha::math::pow() functor for arithmetic types.
+/// Specialisation of the piranha::math::pow() functor for arithmetic and floating-point types.
 /**
- * This specialisation is activated when both arguments are C++ arithmetic types.
+ * This specialisation is activated when both arguments are C++ arithmetic types and at least one argument
+ * is a floating-point type.
  */
 template <typename T, typename U>
-struct pow_impl<T,U,typename std::enable_if<std::is_arithmetic<T>::value && std::is_arithmetic<U>::value>::type>
+struct pow_impl<T,U,typename std::enable_if<
+	std::is_arithmetic<T>::value && std::is_arithmetic<U>::value &&
+	(std::is_floating_point<T>::value || std::is_floating_point<U>::value)
+>::type>
 {
 	/// Generic call operator.
 	/**
-	 * \note
-	 * This operator is enabled only if the expression <tt>std::pow(x,y)</tt> is well-formed.
-	 * 
 	 * This operator will compute the exponentiation via one of the overloads of <tt>std::pow()</tt>.
 	 * 
 	 * @param[in] x base.
@@ -663,7 +667,7 @@ struct abs_impl<T,typename std::enable_if<(std::is_signed<T>::value && std::is_i
 		 * 
 		 * @return absolute value of \p x.
 		 */
-		auto operator()(const T &x) const -> decltype(impl(x))
+		auto operator()(const T &x) const noexcept -> decltype(impl(x))
 		{
 			return impl(x);
 		}
@@ -1234,6 +1238,8 @@ struct binomial_impl
  */
 // TODO as noted in piranha.hpp, this should really be done via gamma() for floating point. Treat this as if this was
 // an arithmetic operator wrt return value and promotion rules.
+// TODO split out the integer part from here, put it into the integer header. Then remove any reference
+// to integer from here (apart maybe in the detail::generic_binomial implementation) and in the tests.
 template <typename T, typename U>
 struct binomial_impl<T,U,typename std::enable_if<std::is_floating_point<T>::value &&
 	(std::is_integral<U>::value || std::is_same<integer,U>::value)

@@ -45,8 +45,7 @@
 #include "../src/exceptions.hpp"
 #include "../src/environment.hpp"
 #include "../src/mp_integer.hpp"
-// TODO type traits chacks.
-//#include "../src/type_traits.hpp"
+#include "../src/type_traits.hpp"
 
 using integral_types = boost::mpl::vector<char,
 	signed char,short,int,long,long long,
@@ -279,6 +278,59 @@ struct constructor_tester
 			::mpq_canonicalize(&m.m_mpq);
 			BOOST_CHECK_EQUAL(mpq_lexcast(m),boost::lexical_cast<std::string>(tmp_q));
 		}
+		// Generic assignment.
+		q_type q11;
+		q11 = 0;
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"0");
+		q11 = 1ull;
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"1");
+		q11 = -short(3);
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"-3");
+		BOOST_CHECK((std::is_same<decltype(q11 = static_cast<signed char>(-3)),q_type &>::value));
+		q11 = int_type{45};
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"45");
+		q11 = 1. / dradix;
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),std::string("1/") + boost::lexical_cast<std::string>(dradix));
+		q11 = 1. / -static_cast<int>(dradix);
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),std::string("-1/") + boost::lexical_cast<std::string>(dradix));
+		if (std::numeric_limits<float>::has_infinity) {
+			BOOST_CHECK_THROW((q11 = std::numeric_limits<float>::infinity()),std::invalid_argument);
+		}
+		// Assignment from string.
+		q11 = "0";
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"0");
+		q11 = std::string("0");
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"0");
+		q11 = "-2";
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"-2");
+		q11 = std::string("-2");
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"-2");
+		q11 = "-2/-10";
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"1/5");
+		q11 = std::string("-2/-10");
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"1/5");
+		q11 = "0/-10";
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"0");
+		q11 = std::string("0/-10");
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"0");
+		q11 = std::string("3/4");
+		BOOST_CHECK_THROW((q11 = std::string("1/0")),zero_division_error);
+		BOOST_CHECK_THROW((q11 = std::string("1/-0")),std::invalid_argument);
+		BOOST_CHECK_THROW((q11 = std::string("-0/4")),std::invalid_argument);
+		BOOST_CHECK_THROW((q11 = std::string("0/0")),zero_division_error);
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q11),"3/4");
+		BOOST_CHECK((std::is_same<q_type &,decltype(q11 = std::string("1/0"))>::value));
+		BOOST_CHECK((std::is_same<q_type &,decltype(q11 = "1/0")>::value));
+		// Check move semantics.
+		// A largish rational that forces to use GMP integers, at least on some platforms. The move operation
+		// of a GMP int will reset the original value to zero, hence we need to take care of the denominator going to zero.
+		q_type tmp00{"231238129381029380129830980980198109890381238120398190/2312093812093812903809128310298301928309128390128390128390128390183"};
+		q11 = std::move(tmp00);
+		BOOST_CHECK_EQUAL(tmp00.den(),1);
+		BOOST_CHECK(tmp00.is_canonical());
+		auto q12(std::move(q11));
+		BOOST_CHECK_EQUAL(q11.den(),1);
+		BOOST_CHECK(q11.is_canonical());
 	}
 };
 
@@ -346,7 +398,7 @@ struct conversion_tester
 		BOOST_CHECK_EQUAL(static_cast<long double>(q2),20.l/-5.l);
 		q_type q3(std::numeric_limits<long long>::max());
 		q3._num() += 1;
-		BOOST_CHECK_THROW(static_cast<long long>(q3),std::overflow_error);
+		BOOST_CHECK_THROW((void)static_cast<long long>(q3),std::overflow_error);
 		if (std::numeric_limits<long double>::has_infinity) {
 			q_type q4(std::numeric_limits<long double>::max());
 			q4._num() *= q4._num();
@@ -358,4 +410,193 @@ struct conversion_tester
 BOOST_AUTO_TEST_CASE(mp_rational_conversion_test)
 {
 	boost::mpl::for_each<size_types>(conversion_tester());
+}
+
+BOOST_AUTO_TEST_CASE(mp_rational_literal_test)
+{
+	auto q0 = 123_q;
+	BOOST_CHECK((std::is_same<mp_rational<>,decltype(q0)>::value));
+	BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q0),"123");
+	q0 = -4_q;
+	BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q0),"-4");
+	BOOST_CHECK_THROW((q0 = 123.45_q),std::invalid_argument);
+	// TODO: enable.
+	// auto q1 = 45/56_q;
+}
+
+struct plus_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		using int_type = typename q_type::int_type;
+		// Identity operator.
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q_type{3,11}),boost::lexical_cast<std::string>(+q_type{3,11}));
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q_type{-6,4}),boost::lexical_cast<std::string>(+q_type{6,-4}));
+		// Increment operators.
+		q_type q0;
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(++q0),"1");
+		q0 = -1;
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q0++),"-1");
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q0),"0");
+		q0 = "3/2";
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(++q0),"5/2");
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q0++),"5/2");
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q0),"7/2");
+		// Some simple checks.
+		q_type a{1,2};
+		a += q_type{3,5};
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"11/10");
+		a += q_type{4,-5};
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"3/10");
+		a += q_type{-4,5};
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"-1/2");
+		a += int_type(-5);
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"-11/2");
+		a += 7;
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"3/2");
+		int n = 1;
+		n += a;
+		BOOST_CHECK_EQUAL(n,2);
+		int_type nn(-2);
+		nn += a;
+		BOOST_CHECK_EQUAL(nn,0);
+		double x(-3);
+		if (std::numeric_limits<double>::radix == 2) {
+			x += a;
+			BOOST_CHECK_EQUAL(x,-1.5);
+		}
+		// Check return types.
+		BOOST_CHECK((std::is_same<q_type &,decltype(a += a)>::value));
+		BOOST_CHECK((std::is_same<q_type &,decltype(a += 1)>::value));
+		BOOST_CHECK((std::is_same<q_type &,decltype(a += int_type(1))>::value));
+		BOOST_CHECK((std::is_same<q_type &,decltype(a += 1.)>::value));
+		BOOST_CHECK((std::is_same<int &,decltype(n += a)>::value));
+		BOOST_CHECK((std::is_same<int_type &,decltype(nn += a)>::value));
+		BOOST_CHECK((std::is_same<double &,decltype(x += a)>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(a + a)>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(a + 1)>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(1ull + a)>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(a + int_type(1))>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(int_type(1) + a)>::value));
+		BOOST_CHECK((std::is_same<double,decltype(a + 1.)>::value));
+		BOOST_CHECK((std::is_same<long double,decltype(1.l + a)>::value));
+		// Check type trait.
+		BOOST_CHECK(is_addable_in_place<q_type>::value);
+		BOOST_CHECK((is_addable_in_place<q_type,int>::value));
+		BOOST_CHECK((is_addable_in_place<q_type,int_type>::value));
+		BOOST_CHECK((is_addable_in_place<q_type,float>::value));
+		BOOST_CHECK((!is_addable_in_place<q_type,std::string>::value));
+		BOOST_CHECK(is_addable<q_type>::value);
+		BOOST_CHECK((is_addable<q_type,int>::value));
+		BOOST_CHECK((is_addable<q_type,int_type>::value));
+		BOOST_CHECK((is_addable<q_type,float>::value));
+		BOOST_CHECK((!is_addable<q_type,std::string>::value));
+		BOOST_CHECK((is_addable<int,q_type>::value));
+		BOOST_CHECK((is_addable<int_type,q_type>::value));
+		BOOST_CHECK((is_addable<float,q_type>::value));
+		BOOST_CHECK((!is_addable<std::string,q_type>::value));
+		BOOST_CHECK((is_addable_in_place<int,q_type>::value));
+		BOOST_CHECK((is_addable_in_place<int_type,q_type>::value));
+		BOOST_CHECK((is_addable_in_place<double,q_type>::value));
+		// Check operations with self.
+		a += a.num();
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"9/2");
+		a += a;
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"9");
+		// Check with same den.
+		a = "3/4";
+		a += q_type{-7,4};
+		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"-1");
+		// Random testing with integral types.
+		std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(),std::numeric_limits<int>::max());
+		mpq_raii m0, m1, m2;
+		detail::mpz_raii z;
+		for (int i = 0; i < ntries; ++i) {
+			int a = dist(rng), b = dist(rng), c = dist(rng), d = dist(rng), e = dist(rng), f = dist(rng);
+			if (b == 0 || d == 0) {
+				continue;
+			}
+			// The mpq set function only works with unsigned type at the denom. Bypass using mpz directly.
+			if (b > 0) {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(b));
+			} else {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m0.m_mpq),static_cast<long>(b));
+			}
+			::mpq_canonicalize(&m0.m_mpq);
+			if (d > 0) {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(d));
+			} else {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m1.m_mpq),static_cast<long>(d));
+			}
+			::mpq_canonicalize(&m1.m_mpq);
+			q_type q0{a,b}, q1{c,d};
+			q0 += q1;
+			::mpq_add(&m0.m_mpq,&m0.m_mpq,&m1.m_mpq);
+			BOOST_CHECK_EQUAL(mpq_lexcast(m0),boost::lexical_cast<std::string>(q0));
+			::mpz_set_si(&z.m_mpz,e);
+			::mpz_addmul(mpq_numref(&m0.m_mpq),mpq_denref(&m0.m_mpq),&z.m_mpz);
+			::mpq_canonicalize(&m0.m_mpq);
+			q0 += int_type(e);
+			BOOST_CHECK_EQUAL(mpq_lexcast(m0),boost::lexical_cast<std::string>(q0));
+			::mpz_set_si(&z.m_mpz,f);
+			::mpz_addmul(mpq_numref(&m0.m_mpq),mpq_denref(&m0.m_mpq),&z.m_mpz);
+			::mpq_canonicalize(&m0.m_mpq);
+			q0 += f;
+			BOOST_CHECK_EQUAL(mpq_lexcast(m0),boost::lexical_cast<std::string>(q0));
+			// In-place with integral on the left.
+			if (a < 0) {
+				auto old_a = a;
+				a += q_type{3,2};
+				// +2 because we are in negative territory and conversion from rational
+				// to int truncates towards zero.
+				BOOST_CHECK_EQUAL(old_a + 2,a);
+				int_type an(old_a);
+				an += q_type{3,2};
+				BOOST_CHECK_EQUAL(old_a + 2,an);
+			}
+			// Binary.
+			q0 = q_type{a,b};
+			q1 = q_type{c,d};
+			if (b > 0) {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(b));
+			} else {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m0.m_mpq),static_cast<long>(b));
+			}
+			::mpq_canonicalize(&m0.m_mpq);
+			if (d > 0) {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(d));
+			} else {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m1.m_mpq),static_cast<long>(d));
+			}
+			::mpq_canonicalize(&m1.m_mpq);
+			::mpq_add(&m2.m_mpq,&m0.m_mpq,&m1.m_mpq);
+			BOOST_CHECK_EQUAL(mpq_lexcast(m2),boost::lexical_cast<std::string>(q0 + q1));
+			BOOST_CHECK_EQUAL(mpq_lexcast(m2),boost::lexical_cast<std::string>(q1 + q0));
+			// With int_type.
+			::mpz_set_si(&z.m_mpz,e);
+			::mpq_set(&m2.m_mpq,&m0.m_mpq);
+			::mpz_addmul(mpq_numref(&m2.m_mpq),mpq_denref(&m2.m_mpq),&z.m_mpz);
+			::mpq_canonicalize(&m2.m_mpq);
+			BOOST_CHECK_EQUAL(mpq_lexcast(m2),boost::lexical_cast<std::string>(q0 + int_type{e}));
+			BOOST_CHECK_EQUAL(mpq_lexcast(m2),boost::lexical_cast<std::string>(int_type{e} + q0));
+			// With int.
+			::mpz_set_si(&z.m_mpz,f);
+			::mpq_set(&m2.m_mpq,&m0.m_mpq);
+			::mpz_addmul(mpq_numref(&m2.m_mpq),mpq_denref(&m2.m_mpq),&z.m_mpz);
+			::mpq_canonicalize(&m2.m_mpq);
+			BOOST_CHECK_EQUAL(mpq_lexcast(m2),boost::lexical_cast<std::string>(q0 + f));
+			BOOST_CHECK_EQUAL(mpq_lexcast(m2),boost::lexical_cast<std::string>(f + q0));
+		}
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_rational_arith_test)
+{
+	boost::mpl::for_each<size_types>(plus_tester());
 }

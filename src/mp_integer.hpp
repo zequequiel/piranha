@@ -286,7 +286,7 @@ struct static_integer
 	}
 	static_integer &operator=(const static_integer &) = default;
 	static_integer &operator=(static_integer &&) = default;
-	void negate()
+	void negate() noexcept
 	{
 		// NOTE: this is 2 at most, no danger in taking the negative.
 		_mp_size = -_mp_size;
@@ -960,7 +960,8 @@ union integer_union
  * @author Francesco Biscani (bluescarni@gmail.com)
  */
 /*
- * TOO performance improvements:
+ * TODO more type traits tests, check wrt old integer tests.
+ * TODO performance improvements:
  *   - reduce usage of gmp integers in internal implementation, change the semantics of the raii
  *     holder so that we avoid double allocations;
  *   - it seems like for a bunch of operations we do not need GMP anymore (e.g., conversion to float),
@@ -1122,7 +1123,8 @@ class mp_integer
 		void construct_from_interoperable(bool v)
 		{
 			if (v) {
-				m_int.g_st().set_bit(0);
+				m_int.g_st()._mp_size = 1;
+				m_int.g_st().m_limbs[0u] = 1u;
 			}
 		}
 		static void validate_string(const char *str, const std::size_t &size)
@@ -1901,8 +1903,7 @@ class mp_integer
 		template <typename T, typename = typename std::enable_if<is_interoperable_type<T>::value>::type>
 		mp_integer &operator=(const T &x)
 		{
-			operator=(mp_integer(x));
-			return *this;
+			return (*this = mp_integer(x));
 		}
 		/// Assignment from C++ string.
 		/**
@@ -2038,7 +2039,7 @@ class mp_integer
 		 * 
 		 * @return reference to \p this.
 		 * 
-		 * @throws unspecified any exception thrown by the generic constructor or by the conversion operator, if used.
+		 * @throws unspecified any exception thrown by the generic constructor, the conversion operator or the generic assignment operator, if used.
 		 */
 		template <typename T>
 		typename std::enable_if<is_interoperable_type<T>::value || std::is_same<mp_integer,T>::value,
@@ -2141,7 +2142,7 @@ class mp_integer
 		 * 
 		 * @return reference to \p this.
 		 * 
-		 * @throws unspecified any exception thrown by the generic constructor or by the conversion operator, if used.
+		 * @throws unspecified any exception thrown by the generic constructor, the conversion operator or the generic assignment operator, if used.
 		 */
 		template <typename T>
 		typename std::enable_if<is_interoperable_type<T>::value || std::is_same<mp_integer,T>::value,
@@ -2244,7 +2245,7 @@ class mp_integer
 		 * 
 		 * @return reference to \p this.
 		 * 
-		 * @throws unspecified any exception thrown by the generic constructor or by the conversion operator, if used.
+		 * @throws unspecified any exception thrown by the generic constructor, the conversion operator or the generic assignment operator, if used.
 		 */
 		template <typename T>
 		typename std::enable_if<is_interoperable_type<T>::value || std::is_same<mp_integer,T>::value,
@@ -2373,7 +2374,7 @@ class mp_integer
 		 * 
 		 * @return reference to \p this.
 		 * 
-		 * @throws unspecified any exception thrown by the generic constructor or by the conversion operator, if used.
+		 * @throws unspecified any exception thrown by the generic constructor, the conversion operator or the generic assignment operator, if used.
 		 * @throws piranha::zero_division_error if \p T is an integral type and \p x is zero (as established by
 		 * piranha::math::is_zero()).
 		 */
@@ -3187,6 +3188,25 @@ struct binomial_impl<T,U,typename std::enable_if<std::is_integral<T>::value>::ty
 }
 
 //using integer = mp_integer<>;
+
+inline namespace literals
+{
+
+/// Literal for arbitrary-precision integers.
+/**
+ * @param[in] s literal string.
+ * 
+ * @return a piranha::mp_integer constructed from \p s.
+ * 
+ * @throws unspecified any exception thrown by the constructor of
+ * piranha::mp_integer from string.
+ */
+inline mp_integer<> operator "" _z(const char *s)
+{
+	return mp_integer<>(s);
+}
+
+}
 
 }
 
