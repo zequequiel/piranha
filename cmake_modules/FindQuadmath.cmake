@@ -1,7 +1,7 @@
 # Module to find libquadmath. The situation is a bit complicated, as in some systems libquadmath is shipped
 # as a regular library in /usr/lib and similar, on others it is, together with libstdc++/libgfortran/etc.,
 # in some internal GCC path.
-# 
+#
 # What we do here is to avoid looking for the header (as, according to the libquadmath
 # doc, we are supposed to be able to just include it wherever it is), and, if we do not find the library
 # in a standard location, we will attempt a direct linking to the library. Then we test with a small executable

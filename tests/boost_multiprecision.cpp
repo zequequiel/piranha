@@ -38,7 +38,7 @@ BOOST_AUTO_TEST_CASE(bmp_io_test)
 	std::cout << x << '\n';
 	x = 1.17l;
 	std::cout << x << '\n';
-	math::multiply_accumulate(x,x,x);	
+	math::multiply_accumulate(x,x,x);
 	std::cout << x << '\n';
 	std::cout << is_cf<bmp_static_float<33>>::value << '\n';
 }

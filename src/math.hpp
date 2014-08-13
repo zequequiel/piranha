@@ -37,7 +37,6 @@
 #include <utility>
 #include <vector>
 
-#include "config.hpp"
 #include "detail/base_term_fwd.hpp"
 #include "detail/integer_fwd.hpp"
 #include "detail/math_tt_fwd.hpp"
