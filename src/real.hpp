@@ -99,7 +99,8 @@ const ::mpfr_prec_t real_base<T>::default_prec;
 // - fix the move semantics if possible (i.e., valid but unspecified state),
 // - add interoperability with long double and long long, avoiding the is_gmp_int stuff ->
 //   look into using the intmax_t overloads from MPFR,
-// - maybe we can replace the raii str holder with a unique_ptr with custom deleter.
+// - maybe we can replace the raii str holder with a unique_ptr with custom deleter,
+// - fix use of isdigit.
 class real: public detail::real_base<>
 {
 		// Type trait for allowed arguments in arithmetic binary operations.
@@ -1406,7 +1407,15 @@ class real: public detail::real_base<>
 			if (prec1 > get_prec()) {
 				*this = real{*this,prec1};
 			}
-			::mpfr_fma(m_value,r1.m_value,r2.m_value,m_value,default_rnd);
+			// So the story here is that mpfr_fma has been reported to be slower than the two separate
+			// operations. Benchmarks on fateman1 indicate this is indeed the case (3.6 vs 2.7 secs
+			// on 4 threads). Hopefully it will be fixed in the future, for now adopt the workaround.
+			// http://www.loria.fr/~zimmerma/mpfr-mpc-2014.html
+			//::mpfr_fma(m_value,r1.m_value,r2.m_value,m_value,default_rnd);
+			// NOTE: the tmp var needs to be thread local.
+			static thread_local real tmp;
+			::mpfr_mul(tmp.m_value,r1.m_value,r2.m_value,MPFR_RNDN);
+			::mpfr_add(m_value,m_value,tmp.m_value,MPFR_RNDN);
 			return *this;
 		}
 		/// Generic equality operator involving piranha::real.
