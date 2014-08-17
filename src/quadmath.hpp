@@ -39,10 +39,13 @@
 namespace piranha
 {
 
+/// Alias for \p __float128, the 128-bit floating-point type from GCC libquadmath.
+using float128 = __float128;
+
 inline namespace literals
 {
 
-inline __float128 operator "" _f128(const char *s)
+inline float128 operator "" _f128(const char *s) noexcept
 {
 	return ::strtoflt128(s,nullptr);
 }
@@ -50,9 +53,9 @@ inline __float128 operator "" _f128(const char *s)
 }
 
 template <typename T>
-struct print_coefficient_impl<T,typename std::enable_if<std::is_same<T,__float128>::value>::type>
+struct print_coefficient_impl<T,typename std::enable_if<std::is_same<T,float128>::value>::type>
 {
-	std::ostream &operator()(std::ostream &os, const __float128 &cf) const
+	std::ostream &operator()(std::ostream &os, const float128 &cf) const
 	{
 		// Plenty of buffer.
 		char buf[128u];
@@ -77,27 +80,27 @@ struct print_coefficient_impl<T,typename std::enable_if<std::is_same<T,__float12
 namespace detail
 {
 
-// Enabler for the __float128 exponentiation method.
+// Enabler for the float128 exponentiation method.
 template <typename T, typename U>
-using pow128_enabler = typename std::enable_if<
-		(std::is_same<T,__float128>::value && std::is_same<U,__float128>::value) ||
-		(std::is_same<T,__float128>::value && std::is_arithmetic<U>::value) ||
-		(std::is_same<U,__float128>::value && std::is_arithmetic<T>::value)
-	>::type;
+using float128_pow_enabler = typename std::enable_if<
+	(std::is_same<T,float128>::value && std::is_same<U,float128>::value) ||
+	(std::is_same<T,float128>::value && std::is_arithmetic<U>::value) ||
+	(std::is_same<U,float128>::value && std::is_arithmetic<T>::value)
+>::type;
 
 }
 
 namespace math
 {
 
-/// Specialisation of the piranha::math::pow() functor for \p __float128.
+/// Specialisation of the piranha::math::pow() functor for piranha::float128.
 /**
- * This specialisation is activated when one of the two types is \p __float128 and the other is either
- * \p __float128 or an arithmetic type.
+ * This specialisation is activated when one of the two types is piranha::float128 and the other is either
+ * piranha::float128 or an arithmetic type.
  */
 // TODO extension to integer, rational and real arguments.
 template <typename T, typename U>
-struct pow_impl<T,U,detail::pow128_enabler<T,U>>
+struct pow_impl<T,U,detail::float128_pow_enabler<T,U>>
 {
 	/// Call operator.
 	/**
@@ -114,9 +117,9 @@ struct pow_impl<T,U,detail::pow128_enabler<T,U>>
 	}
 };
 
-/// Specialisation of the piranha::math::cos() functor for \p __float128.
+/// Specialisation of the piranha::math::cos() functor for piranha::float128.
 template <typename T>
-struct cos_impl<T,typename std::enable_if<std::is_same<T,__float128>::value>::type>
+struct cos_impl<T,typename std::enable_if<std::is_same<T,float128>::value>::type>
 {
 	/// Call operator.
 	/**
@@ -132,9 +135,9 @@ struct cos_impl<T,typename std::enable_if<std::is_same<T,__float128>::value>::ty
 	}
 };
 
-/// Specialisation of the piranha::math::sin() functor for \p __float128.
+/// Specialisation of the piranha::math::sin() functor for piranha::float128.
 template <typename T>
-struct sin_impl<T,typename std::enable_if<std::is_same<T,__float128>::value>::type>
+struct sin_impl<T,typename std::enable_if<std::is_same<T,float128>::value>::type>
 {
 	/// Call operator.
 	/**
@@ -151,9 +154,9 @@ struct sin_impl<T,typename std::enable_if<std::is_same<T,__float128>::value>::ty
 };
 
 
-/// Specialisation of the piranha::math::abs() functor for \p __float128.
+/// Specialisation of the piranha::math::abs() functor for piranha::float128.
 template <typename T>
-struct abs_impl<T,typename std::enable_if<std::is_same<__float128,T>::value>::type>
+struct abs_impl<T,typename std::enable_if<std::is_same<float128,T>::value>::type>
 {
 	public:
 		/// Call operator.

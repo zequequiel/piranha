@@ -34,33 +34,33 @@ using namespace piranha;
 BOOST_AUTO_TEST_CASE(quadmath_io_test)
 {
 	environment env;
-	__float128 x = 1.3_f128;
-	__float128 y = 1.3f;
-	__float128 z = 1.3;
+	float128 x = 1.3_f128;
+	float128 y = 1.3f;
+	float128 z = 1.3;
 	print_coefficient(std::cout,x);
 	std::cout << '\n';
 	print_coefficient(std::cout,y);
 	std::cout << '\n';
 	print_coefficient(std::cout,z);
 	std::cout << '\n';
-	print_coefficient(std::cout,__float128(1.3l));
+	print_coefficient(std::cout,float128(1.3l));
 	std::cout << '\n';
 }
 
 BOOST_AUTO_TEST_CASE(quadmath_math_test)
 {
-	__float128 a, b, c;
+	float128 a, b, c;
 	a = 0.5_f128;
 	b = 1.5_f128;
 	c = 2.5_f128;
 	math::multiply_accumulate(a,b,c);
 	BOOST_CHECK(a == 4.25_f128);
-	BOOST_CHECK(has_multiply_accumulate<__float128>::value);
-	BOOST_CHECK((is_exponentiable<__float128,__float128>::value));
-	BOOST_CHECK((is_exponentiable<__float128,int>::value));
-	BOOST_CHECK((is_exponentiable<__float128,double>::value));
-	BOOST_CHECK((is_exponentiable<__float128,long double>::value));
-	BOOST_CHECK((is_exponentiable<float,__float128>::value));
+	BOOST_CHECK(has_multiply_accumulate<float128>::value);
+	BOOST_CHECK((is_exponentiable<float128,float128>::value));
+	BOOST_CHECK((is_exponentiable<float128,int>::value));
+	BOOST_CHECK((is_exponentiable<float128,double>::value));
+	BOOST_CHECK((is_exponentiable<float128,long double>::value));
+	BOOST_CHECK((is_exponentiable<float,float128>::value));
 	print_coefficient(std::cout,math::pow(3.5_f128,-4.3_f128));
 	std::cout << '\n';
 	print_coefficient(std::cout,math::pow(3.5_f128,-4.3));
@@ -73,7 +73,7 @@ BOOST_AUTO_TEST_CASE(quadmath_math_test)
 
 BOOST_AUTO_TEST_CASE(quadmath_type_traits_test)
 {
-	BOOST_CHECK(has_print_coefficient<__float128>::value);
-	BOOST_CHECK(has_print_tex_coefficient<__float128>::value);
-	BOOST_CHECK(is_cf<__float128>::value);
+	BOOST_CHECK(has_print_coefficient<float128>::value);
+	BOOST_CHECK(has_print_tex_coefficient<float128>::value);
+	BOOST_CHECK(is_cf<float128>::value);
 }
