@@ -84,8 +84,11 @@ struct multiply_accumulate_impl<T,T,T,typename std::enable_if<detail::is_bmp_flo
 {
 	T &operator()(T &x, const T &y, const T &z) const noexcept
 	{
-		::mpfr_fma(x.backend().data(),y.backend().data(),z.backend().data(),
-			x.backend().data(),MPFR_RNDN);
+		// NOTE: here same reasoning as in real.multiply_accumulate().
+		// ::mpfr_fma(x.backend().data(),y.backend().data(),z.backend().data(),x.backend().data(),MPFR_RNDN);
+		static thread_local T tmp;
+		::mpfr_mul(tmp.backend().data(),y.backend().data(),z.backend().data(),MPFR_RNDN);
+		::mpfr_add(x.backend().data(),x.backend().data(),tmp.backend().data(),MPFR_RNDN);
 		return x;
 	}
 };
