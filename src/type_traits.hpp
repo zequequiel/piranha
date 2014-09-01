@@ -31,6 +31,7 @@
 #include <cstddef>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <ostream>
 #include <tuple>
 #include <type_traits>
@@ -875,7 +876,6 @@ const bool term_is_multipliable<Term>::value;
 namespace detail
 {
 
-// TODO: replace use of boost::integer_traits with numeric_limits.
 template <typename T, typename ... Args>
 struct min_int_impl
 {
@@ -883,8 +883,8 @@ struct min_int_impl
 	static_assert((std::is_unsigned<T>::value && std::is_unsigned<next>::value && std::is_integral<next>::value) ||
 		(std::is_signed<T>::value && std::is_signed<next>::value && std::is_integral<next>::value),"The type trait's arguments must all be (un)signed integers.");
 	using type = typename std::conditional<(
-		boost::integer_traits<T>::const_max < boost::integer_traits<next>::const_max &&
-		(std::is_unsigned<T>::value || boost::integer_traits<T>::const_min > boost::integer_traits<next>::const_min)),
+		std::numeric_limits<T>::max() < std::numeric_limits<next>::max() &&
+		(std::is_unsigned<T>::value || std::numeric_limits<T>::min() > std::numeric_limits<next>::min())),
 		T,
 		next
 		>::type;
@@ -904,8 +904,8 @@ struct max_int_impl
 	static_assert((std::is_unsigned<T>::value && std::is_unsigned<next>::value && std::is_integral<next>::value) ||
 		(std::is_signed<T>::value && std::is_signed<next>::value && std::is_integral<next>::value),"The type trait's arguments must all be (un)signed integers.");
 	using type = typename std::conditional<(
-		boost::integer_traits<T>::const_max > boost::integer_traits<next>::const_max &&
-		(std::is_unsigned<T>::value || boost::integer_traits<T>::const_min < boost::integer_traits<next>::const_min)),
+		std::numeric_limits<T>::max() > std::numeric_limits<next>::max() &&
+		(std::is_unsigned<T>::value || std::numeric_limits<T>::min() < std::numeric_limits<next>::min())),
 		T,
 		next
 		>::type;
@@ -1126,6 +1126,36 @@ struct is_forward_iterator
 
 template <typename T>
 const bool is_forward_iterator<T>::value;
+
+namespace detail
+{
+
+template <typename T, T cur_p = T(1), T cur_n = T(-1), typename = void>
+struct safe_abs_sint_impl
+{
+	static const T value = safe_abs_sint_impl<T,static_cast<T>(cur_p * 2),static_cast<T>(cur_n * 2)>::value;
+};
+
+template <typename T, T cur_p, T cur_n>
+struct safe_abs_sint_impl<T,cur_p,cur_n,typename std::enable_if<
+	(cur_p > std::numeric_limits<T>::max() / T(2) || cur_n < std::numeric_limits<T>::min() / T(2))
+	>::type>
+{
+	static const T value = cur_p;
+};
+
+// Determine, for the signed integer T, a value n, power of 2, such that it is safe to take -n.
+template <typename T>
+struct safe_abs_sint
+{
+	static_assert(std::is_integral<T>::value && std::is_signed<T>::value,"T must be a signed integral type.");
+	static const T value = safe_abs_sint_impl<T>::value;
+};
+
+template <typename T>
+const T safe_abs_sint<T>::value;
+
+}
 
 }
 

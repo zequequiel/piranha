@@ -21,6 +21,7 @@
 #ifndef PIRANHA_CONFIG_HPP
 #define PIRANHA_CONFIG_HPP
 
+// Start of defines instantiated by CMake.
 @PIRANHA_PTHREAD_AFFINITY@
 @PIRANHA_POSIX_MEMALIGN@
 @PIRANHA_VERSION@
@@ -28,6 +29,7 @@
 @PIRANHA_HAVE_UINT128_T@
 @PIRANHA_HAVE_QUADMATH@
 @PIRANHA_HAVE_BOOST_MULTIPRECISION@
+// End of defines instantiated by CMake.
 
 #include <cassert>
 

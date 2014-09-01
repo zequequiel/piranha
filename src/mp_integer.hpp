@@ -24,7 +24,6 @@
 #include <algorithm>
 #include <array>
 #include <boost/functional/hash.hpp>
-#include <boost/integer_traits.hpp>
 #include <boost/numeric/conversion/cast.hpp>
 #include <climits>
 #include <cmath>
@@ -47,6 +46,7 @@
 #include "detail/mp_rational_fwd.hpp"
 #include "exceptions.hpp"
 #include "math.hpp"
+#include "type_traits.hpp"
 
 namespace piranha { namespace detail {
 
@@ -140,7 +140,10 @@ static_assert(sizeof(expected_mpz_struct_t) == sizeof(mpz_struct_t) &&
 	offsetof(mpz_struct_t,_mp_d) == offsetof(expected_mpz_struct_t,_mp_d) &&
 	std::is_same<mpz_alloc_t,decltype(std::declval<mpz_struct_t>()._mp_alloc)>::value &&
 	std::is_same<mpz_size_t,decltype(std::declval<mpz_struct_t>()._mp_size)>::value &&
-	std::is_same< ::mp_limb_t *,decltype(std::declval<mpz_struct_t>()._mp_d)>::value,
+	std::is_same< ::mp_limb_t *,decltype(std::declval<mpz_struct_t>()._mp_d)>::value &&
+	// Sanity check on GMP_LIMB_BITS. We use both GMP_LIMB_BITS and numeric_limits interchangeably,
+	// e.g., when using read_uint.
+	std::numeric_limits< ::mp_limb_t>::digits == unsigned(GMP_LIMB_BITS),
 	"Invalid mpz_t struct layout.");
 
 // Metaprogramming to select the limb/dlimb types.
@@ -159,8 +162,8 @@ struct si_limb_types<64>
 {
 	using limb_t = std::uint_least64_t;
 	using dlimb_t = PIRANHA_UINT128_T;
-	static_assert(static_cast<dlimb_t>(boost::integer_traits<limb_t>::const_max) <=
-		-dlimb_t(1) / boost::integer_traits<limb_t>::const_max,"128-bit integer is too narrow.");
+	static_assert(static_cast<dlimb_t>(std::numeric_limits<limb_t>::max()) <=
+		-dlimb_t(1) / std::numeric_limits<limb_t>::max(),"128-bit integer is too narrow.");
 	static const limb_t limb_bits = 64;
 };
 #endif
@@ -213,9 +216,8 @@ struct mpz_raii
 	mpz_raii &operator=(mpz_raii &&) = delete;
 	~mpz_raii()
 	{
-		if (m_mpz._mp_d != nullptr) {
-			::mpz_clear(&m_mpz);
-		}
+		piranha_assert(m_mpz._mp_d != nullptr);
+		::mpz_clear(&m_mpz);
 	}
 	mpz_struct_t m_mpz;
 };
@@ -223,7 +225,7 @@ struct mpz_raii
 inline std::ostream &stream_mpz(std::ostream &os, const mpz_struct_t &mpz)
 {
 	const std::size_t size_base10 = ::mpz_sizeinbase(&mpz,10);
-	if (unlikely(size_base10 > boost::integer_traits<std::size_t>::const_max - static_cast<std::size_t>(2))) {
+	if (unlikely(size_base10 > std::numeric_limits<std::size_t>::max() - static_cast<std::size_t>(2))) {
 		piranha_throw(std::invalid_argument,"number of digits is too large");
 	}
 	const auto total_size = size_base10 + 2u;
@@ -247,7 +249,7 @@ struct static_integer
 	static_assert(total_bits >= limb_bits,"Invalid limb_t type.");
 	using limbs_type = std::array<limb_t,std::size_t(2)>;
 	// Check: we need to be able to address all bits in the 2 limbs using limb_t.
-	static_assert(limb_bits < boost::integer_traits<limb_t>::const_max / 2u,"Overflow error.");
+	static_assert(limb_bits < std::numeric_limits<limb_t>::max() / 2u,"Overflow error.");
 	// NOTE: init everything otherwise zero is gonna be represented by undefined values in lo/hi.
 	static_integer():_mp_alloc(0),_mp_size(0),m_limbs() {}
 	template <typename Integer, typename = typename std::enable_if<std::is_integral<Integer>::value>::type>
@@ -292,7 +294,7 @@ struct static_integer
 	}
 	static_integer &operator=(const static_integer &) = default;
 	static_integer &operator=(static_integer &&) = default;
-	void negate() noexcept
+	void negate()
 	{
 		// NOTE: this is 2 at most, no danger in taking the negative.
 		_mp_size = -_mp_size;
@@ -339,36 +341,114 @@ struct static_integer
 	{
 		return static_cast<mpz_size_t>((_mp_size >= 0) ? _mp_size : -_mp_size);
 	}
-	// Convert static integer to a GMP mpz. The out struct must be initialized to zero.
-	void to_mpz(mpz_struct_t &out) const
+	// Read-only mpz view class. After creation, this class can be used
+	// as const mpz_t argument in GMP functions, thanks to the implicit conversion
+	// operator.
+	template <typename T = static_integer, typename = void>
+	class static_mpz_view
 	{
-		// mp_bitcnt_t must be able to count all the bits in the static integer.
-		static_assert(limb_bits * 2u < boost::integer_traits< ::mp_bitcnt_t>::const_max,"Overflow error.");
-		piranha_assert(out._mp_d != nullptr && mpz_cmp_si(&out,0) == 0);
-		auto l = m_limbs[0u];
-		for (limb_t i = 0u; i < limb_bits; ++i) {
-			if (l % 2u) {
-				::mpz_setbit(&out,static_cast< ::mp_bitcnt_t>(i));
+		public:
+			// Safe, checked above.
+			static const auto max_tot_nbits = 2u * T::limb_bits;
+			// Check the conversion below.
+			static_assert(max_tot_nbits / unsigned(GMP_NUMB_BITS) + 1u <= std::numeric_limits<std::size_t>::max(),
+				"Overflow error.");
+			// Number of GMP limbs to use.
+			static const std::size_t max_n_gmp_limbs = static_cast<std::size_t>(
+				max_tot_nbits % unsigned(GMP_NUMB_BITS) == 0u ?
+				max_tot_nbits / unsigned(GMP_NUMB_BITS) :
+				max_tot_nbits / unsigned(GMP_NUMB_BITS) + 1u);
+			static_assert(max_n_gmp_limbs >= 1u,"Invalid number of GMP limbs.");
+			static_mpz_view(): m_mpz(),m_limbs() {}
+			explicit static_mpz_view(const static_integer &n)
+			{
+				std::size_t asize;
+				bool sign;
+				if (n._mp_size < 0) {
+					sign = false;
+					asize = static_cast<std::size_t>(-n._mp_size);
+				} else {
+					sign = true;
+					asize = static_cast<std::size_t>(n._mp_size);
+				}
+				piranha_assert(asize <= 2u);
+				const auto tot_nbits = asize * T::limb_bits;
+				const std::size_t n_gmp_limbs = static_cast<std::size_t>(
+					tot_nbits % unsigned(GMP_NUMB_BITS) == 0u ?
+					tot_nbits / unsigned(GMP_NUMB_BITS) :
+					tot_nbits / unsigned(GMP_NUMB_BITS) + 1u);
+				// Overflow check when using read_uint.
+				static_assert(unsigned(GMP_LIMB_BITS) <= std::numeric_limits<std::size_t>::max() / max_n_gmp_limbs,
+					"Overflow error.");
+				for (std::size_t i = 0u; i < n_gmp_limbs; ++i) {
+					m_limbs[i] = read_uint< ::mp_limb_t,T::total_bits - T::limb_bits,
+						unsigned(GMP_LIMB_BITS - GMP_NUMB_BITS)>
+						(n.m_limbs.data(),asize,i);
+				}
+				// Fill in the missing limbs, otherwise we have indeterminate values.
+				for (std::size_t i = n_gmp_limbs; i < max_n_gmp_limbs; ++i) {
+					m_limbs[i] = 0u;
+				}
+				// Final assignment.
+				static_assert(max_n_gmp_limbs <= static_cast<std::make_unsigned<mpz_alloc_t>::type>
+					(std::numeric_limits<mpz_alloc_t>::max()),
+					"Overflow error.");
+				// There should always be some space allocated in a proper mpz struct.
+				m_mpz._mp_alloc = static_cast<mpz_alloc_t>(max_n_gmp_limbs);
+				static_assert(max_n_gmp_limbs <=
+					static_cast<std::make_unsigned<mpz_size_t>::type>(detail::safe_abs_sint<mpz_size_t>::value),
+					"Overflow error.");
+				m_mpz._mp_size = sign ? static_cast<mpz_size_t>(n_gmp_limbs) : -static_cast<mpz_size_t>(n_gmp_limbs);
+				m_mpz._mp_d = m_limbs.data();
 			}
-			l = static_cast<limb_t>(l >> 1u);
-		}
-		l = m_limbs[1u];
-		for (limb_t i = 0u; i < limb_bits; ++i) {
-			if (l % 2u) {
-				::mpz_setbit(&out,static_cast< ::mp_bitcnt_t>(i + limb_bits));
+			// Leave only the move ctor so that this can be returned by a function.
+			static_mpz_view(const static_mpz_view &) = delete;
+			static_mpz_view(static_mpz_view &&) = default;
+			static_mpz_view &operator=(const static_mpz_view &) = delete;
+			static_mpz_view &operator=(static_mpz_view &&) = delete;
+			operator const mpz_struct_t *() const
+			{
+				return &m_mpz;
 			}
-			l = static_cast<limb_t>(l >> 1u);
-		}
-		if (_mp_size < 0) {
-			// Switch the sign as needed.
-			::mpz_neg(&out,&out);
-		}
+		private:
+			mpz_struct_t					m_mpz;
+			std::array< ::mp_limb_t,max_n_gmp_limbs>	m_limbs;
+	};
+	// NOTE: in order to activate this optimisation, we need to be certain that:
+	// - the limbs type coincide, as we are doing a const_cast between them,
+	// - the number of bits effectively used is identical.
+	template <typename T>
+	class static_mpz_view<T,typename std::enable_if<
+		std::is_same< ::mp_limb_t,typename T::limb_t>::value &&
+		T::limb_bits == unsigned(GMP_NUMB_BITS)
+		>::type>
+	{
+		public:
+			static_mpz_view(): m_mpz() {}
+			// NOTE: we use the const_cast to cast away the constness from the pointer to the limbs
+			// in n. This is valid as we are never going to use this pointer for writing.
+			explicit static_mpz_view(const static_integer &n):m_mpz{static_cast<mpz_alloc_t>(2),
+				n._mp_size,const_cast< ::mp_limb_t *>(n.m_limbs.data())}
+			{}
+			static_mpz_view(const static_mpz_view &) = delete;
+			static_mpz_view(static_mpz_view &&) = default;
+			static_mpz_view &operator=(const static_mpz_view &) = delete;
+			static_mpz_view &operator=(static_mpz_view &&) = delete;
+			operator const mpz_struct_t *() const
+			{
+				return &m_mpz;
+			}
+		private:
+			mpz_struct_t m_mpz;
+	};
+	static_mpz_view<> get_mpz_view() const
+	{
+		return static_mpz_view<>{*this};
 	}
 	friend std::ostream &operator<<(std::ostream &os, const static_integer &si)
 	{
-		mpz_raii m;
-		si.to_mpz(m.m_mpz);
-		return stream_mpz(os,m.m_mpz);
+		auto v = si.get_mpz_view();
+		return stream_mpz(os,*static_cast<const mpz_struct_t *>(v));
 	}
 	bool operator==(const static_integer &other) const
 	{
@@ -447,19 +527,20 @@ struct static_integer
 	}
 	template <typename T = static_integer>
 	void clear_extra_bits(typename std::enable_if<T::limb_bits == T::total_bits>::type * = nullptr) {}
-	static void raw_add(static_integer &res, const static_integer &x, const static_integer &y)
+	static int raw_add(static_integer &res, const static_integer &x, const static_integer &y)
 	{
 		piranha_assert(x.abs_size() <= 2 && y.abs_size() <= 2);
 		const dlimb_t lo = static_cast<dlimb_t>(static_cast<dlimb_t>(x.m_limbs[0u]) + y.m_limbs[0u]);
 		const dlimb_t hi = static_cast<dlimb_t>((static_cast<dlimb_t>(x.m_limbs[1u]) + y.m_limbs[1u]) + (lo >> limb_bits));
-		// NOTE: throw before modifying anything here, for exception safety.
+		// NOTE: exit before modifying anything here, so that res is not modified.
 		if (unlikely(static_cast<limb_t>(hi >> limb_bits) != 0u)) {
-			piranha_throw(std::overflow_error,"overflow in raw addition");
+			return 1;
 		}
 		res.m_limbs[0u] = static_cast<limb_t>(lo);
 		res.m_limbs[1u] = static_cast<limb_t>(hi);
 		res._mp_size = res.calculate_n_limbs();
 		res.clear_extra_bits();
+		return 0;
 	}
 	static void raw_sub(static_integer &res, const static_integer &x, const static_integer &y)
 	{
@@ -474,7 +555,7 @@ struct static_integer
 		res.clear_extra_bits();
 	}
 	template <bool AddOrSub>
-	static void add_or_sub(static_integer &res, const static_integer &x, const static_integer &y)
+	static int add_or_sub(static_integer &res, const static_integer &x, const static_integer &y)
 	{
 		mpz_size_t asizex = x._mp_size, asizey = static_cast<mpz_size_t>(AddOrSub ? y._mp_size : -y._mp_size);
 		bool signx = true, signy = true;
@@ -488,7 +569,9 @@ struct static_integer
 		}
 		piranha_assert(asizex <= 2 && asizey <= 2);
 		if (signx == signy) {
-			raw_add(res,x,y);
+			if (unlikely(raw_add(res,x,y))) {
+				return 1;
+			}
 			if (!signx) {
 				res.negate();
 			}
@@ -505,14 +588,15 @@ struct static_integer
 				}
 			}
 		}
+		return 0;
 	}
-	static void add(static_integer &res, const static_integer &x, const static_integer &y)
+	static int add(static_integer &res, const static_integer &x, const static_integer &y)
 	{
-		add_or_sub<true>(res,x,y);
+		return add_or_sub<true>(res,x,y);
 	}
-	static void sub(static_integer &res, const static_integer &x, const static_integer &y)
+	static int sub(static_integer &res, const static_integer &x, const static_integer &y)
 	{
-		add_or_sub<false>(res,x,y);
+		return add_or_sub<false>(res,x,y);
 	}
 	static void raw_mul(static_integer &res, const static_integer &x, const static_integer &y, const mpz_size_t &asizex,
 		const mpz_size_t &asizey)
@@ -526,14 +610,14 @@ struct static_integer
 		res.clear_extra_bits();
 		piranha_assert(res._mp_size > 0);
 	}
-	static void mul(static_integer &res, const static_integer &x, const static_integer &y)
+	static int mul(static_integer &res, const static_integer &x, const static_integer &y)
 	{
 		mpz_size_t asizex = x._mp_size, asizey = y._mp_size;
 		if (unlikely(asizex == 0 || asizey == 0)) {
 			res._mp_size = 0;
 			res.m_limbs[0u] = 0u;
 			res.m_limbs[1u] = 0u;
-			return;
+			return 0;
 		}
 		bool signx = true, signy = true;
 		if (asizex < 0) {
@@ -545,12 +629,13 @@ struct static_integer
 			signy = false;
 		}
 		if (unlikely(asizex > 1 || asizey > 1)) {
-			piranha_throw(std::overflow_error,"overflow in multiplication");
+			return 1;
 		}
 		raw_mul(res,x,y,asizex,asizey);
 		if (signx != signy) {
 			res.negate();
 		}
+		return 0;
 	}
 	static_integer &operator+=(const static_integer &other)
 	{
@@ -595,7 +680,7 @@ struct static_integer
 		retval *= y;
 		return retval;
 	}
-	void multiply_accumulate(const static_integer &b, const static_integer &c)
+	int multiply_accumulate(const static_integer &b, const static_integer &c)
 	{
 		mpz_size_t asizea = _mp_size, asizeb = b._mp_size, asizec = c._mp_size;
 		bool signa = true, signb = true, signc = true;
@@ -613,10 +698,10 @@ struct static_integer
 		}
 		piranha_assert(asizea <= 2);
 		if (unlikely(asizeb > 1 || asizec > 1)) {
-			piranha_throw(std::overflow_error,"overflow in multadd");
+			return 1;
 		}
 		if (unlikely(asizeb == 0 || asizec == 0)) {
-			return;
+			return 0;
 		}
 		static_integer tmp;
 		raw_mul(tmp,b,c,asizeb,asizec);
@@ -624,7 +709,9 @@ struct static_integer
 		const bool signtmp = (signb == signc);
 		piranha_assert(asizetmp <= 2 && asizetmp > 0);
 		if (signa == signtmp) {
-			raw_add(*this,*this,tmp);
+			if (unlikely(raw_add(*this,*this,tmp))) {
+				return 1;
+			}
 			if (!signa) {
 				negate();
 			}
@@ -641,6 +728,7 @@ struct static_integer
 				}
 			}
 		}
+		return 0;
 	}
 	// Left-shift by one.
 	void lshift1()
@@ -737,7 +825,7 @@ struct static_integer
 			// value of the index param.
 			(limb_t(max_n_size_t - 1u) < std::size_t(std::numeric_limits<std::size_t>::max() / nbits_size_t));
 	};
-	std::size_t hash() const noexcept
+	std::size_t hash() const
 	{
 		static_assert(hash_checks::value,"Overflow error.");
 		// Hash of zero is zero.
@@ -777,7 +865,7 @@ union integer_union
 	public:
 		using s_storage = static_integer<NBits>;
 		using d_storage = mpz_struct_t;
-		static void move_ctor_mpz(mpz_struct_t &to, mpz_struct_t &from) noexcept
+		static void move_ctor_mpz(mpz_struct_t &to, mpz_struct_t &from)
 		{
 			to._mp_alloc = from._mp_alloc;
 			to._mp_size = from._mp_size;
@@ -868,11 +956,11 @@ union integer_union
 			}
 			return *this;
 		}
-		bool is_static() const noexcept
+		bool is_static() const
 		{
 			return m_st._mp_alloc == 0;
 		}
-		static bool fits_in_static(const mpz_struct_t &mpz) noexcept
+		static bool fits_in_static(const mpz_struct_t &mpz)
 		{
 			// NOTE: sizeinbase returns the index of the highest bit *counting from 1* (like a logarithm).
 			return (::mpz_sizeinbase(&mpz,2) <= s_storage::limb_bits * 2u);
@@ -888,14 +976,17 @@ union integer_union
 		void promote()
 		{
 			piranha_assert(is_static());
-			mpz_raii tmp;
-			g_st().to_mpz(tmp.m_mpz);
+			// Construct an mpz from the static.
+			mpz_struct_t tmp_mpz;
+			auto v = g_st().get_mpz_view();
+			::mpz_init_set(&tmp_mpz,v);
 			// Destroy static.
 			g_st().~s_storage();
 			// Construct the dynamic struct.
 			::new (static_cast<void *>(&m_dy)) d_storage;
-			move_ctor_mpz(m_dy,tmp.m_mpz);
-			tmp.m_mpz._mp_d = nullptr;
+			move_ctor_mpz(m_dy,tmp_mpz);
+			// No need to do anything, as move_ctor_mpz() transfers
+			// ownership to m_dy.
 		}
 		// Getters for st and dy.
 		const s_storage &g_st() const
@@ -970,20 +1061,12 @@ union integer_union
  * - more type traits tests, check wrt old integer tests.
  * - check if we can just make a single friend here, in the same way as done in piranha::integer for the pow_impl access.
  * TODO performance improvements:
- *   - reduce usage of gmp integers in internal implementation, change the semantics of the raii
- *     holder so that we avoid double allocations;
  *   - it seems like for a bunch of operations we do not need GMP anymore (e.g., conversion to float),
  *     we can use mp_integer directly - this could be a performance improvement;
  *   - avoid going through mpz for print to stream,
  *   - when cting from C++ ints, attempt a numeric_cast to limb_type for very fast conversion in static integer,
- *   - in raw_add/sub/div we always operate assuming the static int has 2 limbs, maybe there's performance to be gained
- *     by switch()ing the different cases for the operands sizes,
- *   - actually, it seems like we could use a kind of static counterpart in many cases (comparison, addition, etc.):
- *     just allocate the space in a static array and convert static_int to the GMP format, without actually allocating
- *     any memory;
- *   - it seems like there might be performance to be gained by dropping exceptions for signalling overflow in add and mul;
- *     try to replace with error code and see if it makes a difference. Probably we only want this for add, mul and
- *     multiply_accumulate.
+ *   - optimize common cases for read_uint, that is, avoid always reading bit by bit. This should improve hashing
+ *     performance, amongst other.
  * - probably the assignment operator should demote to static if possible; more generally, there could be a benefit in demoting
  *   (subtraction and division for sure, maybe operations that piggyback on GMP routines as well) -> think for instance about
  *   rational.
@@ -1108,7 +1191,7 @@ class mp_integer
 				if (rem != Integer(0)) {
 					::mpz_setbit(&m.m_mpz,bit_idx);
 				}
-				if (unlikely(bit_idx == boost::integer_traits< ::mp_bitcnt_t>::const_max)) {
+				if (unlikely(bit_idx == std::numeric_limits< ::mp_bitcnt_t>::max())) {
 					piranha_throw(std::invalid_argument,"overflow in the construction from integral type");
 				}
 				++bit_idx;
@@ -1297,7 +1380,8 @@ class mp_integer
 			// Extract a GMP mpz to work with.
 			detail::mpz_raii tmp;
 			if (m_int.is_static()) {
-				m_int.g_st().to_mpz(tmp.m_mpz);
+				auto v = m_int.g_st().get_mpz_view();
+				::mpz_set(&tmp.m_mpz,v);
 			} else {
 				::mpz_set(&tmp.m_mpz,&m_int.g_dy());
 			}
@@ -1360,17 +1444,18 @@ class mp_integer
 			bool s1 = is_static(), s2 = other.is_static();
 			if (s1 && s2) {
 				// Attempt the static add/sub.
-				try {
-					// NOTE: the static add/sub will try to do the operation, if it fails an overflow error
-					// will be generated. The operation is exception-safe, and m_int.g_st() will be untouched
-					// in case of problems.
-					if (AddOrSub) {
-						m_int.g_st().add(m_int.g_st(),m_int.g_st(),other.m_int.g_st());
-					} else {
-						m_int.g_st().sub(m_int.g_st(),m_int.g_st(),other.m_int.g_st());
-					}
+				// NOTE: the static add/sub will try to do the operation, if it fails 1
+				// will be returned. The operation is safe, and m_int.g_st() will be untouched
+				// in case of problems.
+				int status;
+				if (AddOrSub) {
+					status = m_int.g_st().add(m_int.g_st(),m_int.g_st(),other.m_int.g_st());
+				} else {
+					status = m_int.g_st().sub(m_int.g_st(),m_int.g_st(),other.m_int.g_st());
+				}
+				if (likely(!status)) {
 					return *this;
-				} catch (const std::overflow_error &) {}
+				}
 			}
 			// Promote as needed, we need GMP types on both sides.
 			if (s1) {
@@ -1379,12 +1464,11 @@ class mp_integer
 				s2 = other.is_static();
 			}
 			if (s2) {
-				detail::mpz_raii m;
-				other.m_int.g_st().to_mpz(m.m_mpz);
+				auto v = other.m_int.g_st().get_mpz_view();
 				if (AddOrSub) {
-					::mpz_add(&m_int.g_dy(),&m_int.g_dy(),&m.m_mpz);
+					::mpz_add(&m_int.g_dy(),&m_int.g_dy(),v);
 				} else {
-					::mpz_sub(&m_int.g_dy(),&m_int.g_dy(),&m.m_mpz);
+					::mpz_sub(&m_int.g_dy(),&m_int.g_dy(),v);
 				}
 			} else {
 				if (AddOrSub) {
@@ -1504,10 +1588,9 @@ class mp_integer
 			bool s1 = is_static(), s2 = other.is_static();
 			if (s1 && s2) {
 				// Attempt the static mul.
-				try {
-					m_int.g_st().mul(m_int.g_st(),m_int.g_st(),other.m_int.g_st());
+				if(likely(!m_int.g_st().mul(m_int.g_st(),m_int.g_st(),other.m_int.g_st()))) {
 					return *this;
-				} catch (const std::overflow_error &) {}
+				}
 			}
 			// Promote as needed, we need GMP types on both sides.
 			if (s1) {
@@ -1515,9 +1598,8 @@ class mp_integer
 				s2 = other.is_static();
 			}
 			if (s2) {
-				detail::mpz_raii m;
-				other.m_int.g_st().to_mpz(m.m_mpz);
-				::mpz_mul(&m_int.g_dy(),&m_int.g_dy(),&m.m_mpz);
+				auto v = other.m_int.g_st().get_mpz_view();
+				::mpz_mul(&m_int.g_dy(),&m_int.g_dy(),v);
 			} else {
 				::mpz_mul(&m_int.g_dy(),&m_int.g_dy(),&other.m_int.g_dy());
 			}
@@ -1579,10 +1661,8 @@ class mp_integer
 				m_int.promote();
 				::mpz_tdiv_q(&m_int.g_dy(),&m_int.g_dy(),&other.m_int.g_dy());
 			} else if (!s1 && s2) {
-				// Create a promoted copy of other.
-				detail::mpz_raii m;
-				other.m_int.g_st().to_mpz(m.m_mpz);
-				::mpz_tdiv_q(&m_int.g_dy(),&m_int.g_dy(),&m.m_mpz);
+				auto v = other.m_int.g_st().get_mpz_view();
+				::mpz_tdiv_q(&m_int.g_dy(),&m_int.g_dy(),v);
 			} else {
 				::mpz_tdiv_q(&m_int.g_dy(),&m_int.g_dy(),&other.m_int.g_dy());
 			}
@@ -1644,10 +1724,8 @@ class mp_integer
 				m_int.promote();
 				::mpz_tdiv_r(&m_int.g_dy(),&m_int.g_dy(),&other.m_int.g_dy());
 			} else if (!s1 && s2) {
-				// Create a promoted copy of other.
-				detail::mpz_raii m;
-				other.m_int.g_st().to_mpz(m.m_mpz);
-				::mpz_tdiv_r(&m_int.g_dy(),&m_int.g_dy(),&m.m_mpz);
+				auto v = other.m_int.g_st().get_mpz_view();
+				::mpz_tdiv_r(&m_int.g_dy(),&m_int.g_dy(),v);
 			} else {
 				::mpz_tdiv_r(&m_int.g_dy(),&m_int.g_dy(),&other.m_int.g_dy());
 			}
@@ -1689,15 +1767,11 @@ class mp_integer
 			if (s1 && s2) {
 				return (n1.m_int.g_st() == n2.m_int.g_st());
 			} else if (s1 && !s2) {
-				// NOTE: clearly, this is highly inefficient and needs to be optimized
-				// in the future.
-				detail::mpz_raii tmp;
-				n1.m_int.g_st().to_mpz(tmp.m_mpz);
-				return ::mpz_cmp(&tmp.m_mpz,&n2.m_int.g_dy()) == 0;
+				auto v1 = n1.m_int.g_st().get_mpz_view();
+				return ::mpz_cmp(v1,&n2.m_int.g_dy()) == 0;
 			} else if (!s1 && s2) {
-				detail::mpz_raii tmp;
-				n2.m_int.g_st().to_mpz(tmp.m_mpz);
-				return ::mpz_cmp(&tmp.m_mpz,&n1.m_int.g_dy()) == 0;
+				auto v2 = n2.m_int.g_st().get_mpz_view();
+				return ::mpz_cmp(v2,&n1.m_int.g_dy()) == 0;
 			} else {
 				return ::mpz_cmp(&n1.m_int.g_dy(),&n2.m_int.g_dy()) == 0;
 			}
@@ -1728,13 +1802,11 @@ class mp_integer
 			if (s1 && s2) {
 				return (n1.m_int.g_st() < n2.m_int.g_st());
 			} else if (s1 && !s2) {
-				detail::mpz_raii tmp;
-				n1.m_int.g_st().to_mpz(tmp.m_mpz);
-				return ::mpz_cmp(&tmp.m_mpz,&n2.m_int.g_dy()) < 0;
+				auto v1 = n1.m_int.g_st().get_mpz_view();
+				return ::mpz_cmp(v1,&n2.m_int.g_dy()) < 0;
 			} else if (!s1 && s2) {
-				detail::mpz_raii tmp;
-				n2.m_int.g_st().to_mpz(tmp.m_mpz);
-				return ::mpz_cmp(&n1.m_int.g_dy(),&tmp.m_mpz) < 0;
+				auto v2 = n2.m_int.g_st().get_mpz_view();
+				return ::mpz_cmp(&n1.m_int.g_dy(),v2) < 0;
 			} else {
 				return ::mpz_cmp(&n1.m_int.g_dy(),&n2.m_int.g_dy()) < 0;
 			}
@@ -1765,13 +1837,11 @@ class mp_integer
 			if (s1 && s2) {
 				return (n1.m_int.g_st() <= n2.m_int.g_st());
 			} else if (s1 && !s2) {
-				detail::mpz_raii tmp;
-				n1.m_int.g_st().to_mpz(tmp.m_mpz);
-				return ::mpz_cmp(&tmp.m_mpz,&n2.m_int.g_dy()) <= 0;
+				auto v1 = n1.m_int.g_st().get_mpz_view();
+				return ::mpz_cmp(v1,&n2.m_int.g_dy()) <= 0;
 			} else if (!s1 && s2) {
-				detail::mpz_raii tmp;
-				n2.m_int.g_st().to_mpz(tmp.m_mpz);
-				return ::mpz_cmp(&n1.m_int.g_dy(),&tmp.m_mpz) <= 0;
+				auto v2 = n2.m_int.g_st().get_mpz_view();
+				return ::mpz_cmp(&n1.m_int.g_dy(),v2) <= 0;
 			} else {
 				return ::mpz_cmp(&n1.m_int.g_dy(),&n2.m_int.g_dy()) <= 0;
 			}
@@ -1840,6 +1910,35 @@ class mp_integer
 				return 1 / pow_impl(-n);
 			}
 		}
+		// mpz view class.
+		class mpz_view
+		{
+				using static_mpz_view = typename detail::integer_union<NBits>::s_storage::template static_mpz_view<>;
+			public:
+				explicit mpz_view(const mp_integer &n):
+					m_static_view(n.is_static() ? n.m_int.g_st().get_mpz_view() : static_mpz_view{}),
+					m_dyn_ptr(n.is_static() ? nullptr : &(n.m_int.g_dy()))
+				{}
+				mpz_view(const mpz_view &) = delete;
+				mpz_view(mpz_view &&) = default;
+				mpz_view &operator=(const mpz_view &) = delete;
+				mpz_view &operator=(mpz_view &&) = delete;
+				operator const detail::mpz_struct_t *() const
+				{
+					return get();
+				}
+				const detail::mpz_struct_t *get() const
+				{
+					if (m_dyn_ptr) {
+						return m_dyn_ptr;
+					} else {
+						return m_static_view;
+					}
+				}
+			private:
+				static_mpz_view			m_static_view;
+				const detail::mpz_struct_t	*m_dyn_ptr;
+		};
 	public:
 		/// Defaulted default constructor.
 		/**
@@ -1951,6 +2050,25 @@ class mp_integer
 			operator=(mp_integer(str));
 			return *this;
 		}
+		/// Get an \p mpz view of \p this.
+		/**
+		 * This method will return an object of an unspecified type \p mpz_view which is implicitly convertible
+		 * to a const pointer to an \p mpz struct (and which can thus be used as a <tt>const mpz_t</tt>
+		 * parameter in GMP functions). In addition to the implicit conversion operator, the \p mpz struct pointer
+		 * can also be retrieved via the <tt>get()</tt> method of the \p mpz_view class.
+		 * The pointee will represent a GMP integer whose value is equal to \p this.
+		 *
+		 * Note that the returned \p mpz_view instance can only be move-constructed (the other constructors and the assignment operators
+		 * are disabled). Additionally, the returned object and the pointer might reference internal data belonging to
+		 * \p this, and they can thus be used safely only during the lifetime of \p this.
+		 * Any modification to \p this will also invalidate the view and the pointer.
+		 *
+		 * @return an \p mpz view of \p this.
+		 */
+		mpz_view get_mpz_view() const
+		{
+			return mpz_view(*this);
+		}
 		/// Conversion operator.
 		/**
 		 * \note
@@ -2008,12 +2126,12 @@ class mp_integer
 		/**
 		 * @return \p true if \p this is currently stored in static storage, \p false otherwise.
 		 */
-		bool is_static() const noexcept
+		bool is_static() const
 		{
 			return m_int.is_static();
 		}
 		/// Negate in-place.
-		void negate() noexcept
+		void negate()
 		{
 			if (is_static()) {
 				m_int.g_st().negate();
@@ -2025,7 +2143,7 @@ class mp_integer
 		/**
 		 * @return 1 if <tt>this > 0</tt>, 0 if <tt>this == 0</tt> and -1 if <tt>this < 0</tt>.
 		 */
-		int sign() const noexcept
+		int sign() const
 		{
 			if (is_static()) {
 				if (m_int.g_st()._mp_size > 0) {
@@ -2116,7 +2234,7 @@ class mp_integer
 		/**
 		 * @return copy of \p this.
 		 */
-		mp_integer operator+() const noexcept
+		mp_integer operator+() const
 		{
 			return *this;
 		}
@@ -2126,7 +2244,7 @@ class mp_integer
 		 * 
 		 * @return reference to \p this after the increment.
 		 */
-		mp_integer &operator++() noexcept
+		mp_integer &operator++()
 		{
 			return operator+=(1);
 		}
@@ -2136,7 +2254,7 @@ class mp_integer
 		 * 
 		 * @return copy of \p this before the increment.
 		 */
-		mp_integer operator++(int) noexcept
+		mp_integer operator++(int)
 		{
 			const mp_integer retval(*this);
 			++(*this);
@@ -2217,7 +2335,7 @@ class mp_integer
 		/**
 		 * @return copy of \p -this.
 		 */
-		mp_integer operator-() const noexcept
+		mp_integer operator-() const
 		{
 			mp_integer retval(*this);
 			retval.negate();
@@ -2229,7 +2347,7 @@ class mp_integer
 		 * 
 		 * @return reference to \p this.
 		 */
-		mp_integer &operator--() noexcept
+		mp_integer &operator--()
 		{
 			return operator-=(1);
 		}
@@ -2325,14 +2443,13 @@ class mp_integer
 		 * 
 		 * @return reference to \p this.
 		 */
-		mp_integer &multiply_accumulate(const mp_integer &n1, const mp_integer &n2) noexcept
+		mp_integer &multiply_accumulate(const mp_integer &n1, const mp_integer &n2)
 		{
 			bool s0 = is_static(), s1 = n1.is_static(), s2 = n2.is_static();
 			if (s0 && s1 && s2) {
-				try {
-					m_int.g_st().multiply_accumulate(n1.m_int.g_st(),n2.m_int.g_st());
+				if (likely(!m_int.g_st().multiply_accumulate(n1.m_int.g_st(),n2.m_int.g_st()))) {
 					return *this;
-				} catch (const std::overflow_error &) {}
+				}
 			}
 			// this will have to be mpz in any case, promote it if needed and re-check the
 			// static flags in case this coincides with n1 and/or n2.
@@ -2348,24 +2465,20 @@ class mp_integer
 			switch (mask) {
 				case 0u:
 				{
-					detail::mpz_raii m1, m2;
-					n1.m_int.g_st().to_mpz(m1.m_mpz);
-					n2.m_int.g_st().to_mpz(m2.m_mpz);
-					::mpz_addmul(&m_int.g_dy(),&m1.m_mpz,&m2.m_mpz);
+					auto v1 = n1.m_int.g_st().get_mpz_view(), v2 = n2.m_int.g_st().get_mpz_view();
+					::mpz_addmul(&m_int.g_dy(),v1,v2);
 					break;
 				}
 				case 1u:
 				{
-					detail::mpz_raii m2;
-					n2.m_int.g_st().to_mpz(m2.m_mpz);
-					::mpz_addmul(&m_int.g_dy(),&n1.m_int.g_dy(),&m2.m_mpz);
+					auto v2 = n2.m_int.g_st().get_mpz_view();
+					::mpz_addmul(&m_int.g_dy(),&n1.m_int.g_dy(),v2);
 					break;
 				}
 				case 2u:
 				{
-					detail::mpz_raii m1;
-					n1.m_int.g_st().to_mpz(m1.m_mpz);
-					::mpz_addmul(&m_int.g_dy(),&m1.m_mpz,&n2.m_int.g_dy());
+					auto v1 = n1.m_int.g_st().get_mpz_view();
+					::mpz_addmul(&m_int.g_dy(),v1,&n2.m_int.g_dy());
 					break;
 				}
 				case 3u:
@@ -2704,7 +2817,7 @@ class mp_integer
 		/**
 		 * @return absolute value of \p this.
 		 */
-		mp_integer abs() const noexcept
+		mp_integer abs() const
 		{
 			mp_integer retval(*this);
 			if (retval.is_static()) {
@@ -2735,7 +2848,7 @@ class mp_integer
 		 *
 		 * @return a hash value for \p this.
 		 */
-		std::size_t hash() const noexcept
+		std::size_t hash() const
 		{
 			// NOTE: in order to check that this method can be called safely we need to make sure that:
 			// - the static hash calculation has no overflows (checked above),
@@ -2765,7 +2878,8 @@ class mp_integer
 				// NOTE: in case of overflow here, we will underestimate the number of bits
 				// used in the representation of dy.
 				// NOTE: use GMP_NUMB_BITS in case we are operating with a GMP lib built with nails support.
-				tot_nbits  = static_cast<std::size_t>(std::size_t(GMP_NUMB_BITS) * size),
+				// NOTE: GMP_NUMB_BITS is an int constant.
+				tot_nbits  = static_cast<std::size_t>(unsigned(GMP_NUMB_BITS) * size),
 				q = static_cast<std::size_t>(tot_nbits / nbits_size_t),
 				r = static_cast<std::size_t>(tot_nbits % nbits_size_t),
 				n_size_t = static_cast<std::size_t>(q + static_cast<std::size_t>(r != 0u));
@@ -2945,7 +3059,7 @@ struct multiply_accumulate_impl<T,T,T,typename std::enable_if<detail::is_mp_inte
 	 * 
 	 * @return <tt>x.multiply_accumulate(y,z)</tt>.
 	 */
-	auto operator()(T &x, const T &y, const T &z) const noexcept -> decltype(x.multiply_accumulate(y,z))
+	auto operator()(T &x, const T &y, const T &z) const -> decltype(x.multiply_accumulate(y,z))
 	{
 		return x.multiply_accumulate(y,z);
 	}
@@ -2964,7 +3078,7 @@ struct negate_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::t
 	 * 
 	 * @param[in,out] n piranha::mp_integer to be negated.
 	 */
-	void operator()(T &n) const noexcept
+	void operator()(T &n) const
 	{
 		n.negate();
 	}
@@ -2985,7 +3099,7 @@ struct is_zero_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::
 	 * 
 	 * @return \p true if \p n is zero, \p false otherwise.
 	 */
-	bool operator()(const T &n) const noexcept
+	bool operator()(const T &n) const
 	{
 		return n.sign() == 0;
 	}
@@ -3033,7 +3147,7 @@ struct abs_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::type
 	 * 
 	 * @return absolute value of \p n.
 	 */
-	T operator()(const T &n) const noexcept
+	T operator()(const T &n) const
 	{
 		return n.abs();
 	}
@@ -3100,7 +3214,7 @@ struct partial_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::
 	/**
 	 * @return an instance of piranha::mp_integer constructed from zero.
 	 */
-	T operator()(const T &, const std::string &) const noexcept
+	T operator()(const T &, const std::string &) const
 	{
 		return T{};
 	}
@@ -3120,7 +3234,7 @@ struct evaluate_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>:
 	 * @return copy of \p n.
 	 */
 	template <typename U>
-	T operator()(const T &n, const std::unordered_map<std::string,U> &) const noexcept
+	T operator()(const T &n, const std::unordered_map<std::string,U> &) const
 	{
 		return n;
 	}
@@ -3140,7 +3254,7 @@ struct subs_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::typ
 	 * @return copy of \p n.
 	 */
 	template <typename U>
-	T operator()(const T &n, const std::string &, const U &) const noexcept
+	T operator()(const T &n, const std::string &, const U &) const
 	{
 		return n;
 	}
