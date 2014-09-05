@@ -18,40 +18,31 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef PIRANHA_CONFIG_HPP
-#define PIRANHA_CONFIG_HPP
+#include "gastineau4.hpp"
 
-// Start of defines instantiated by CMake.
-@PIRANHA_PTHREAD_AFFINITY@
-@PIRANHA_POSIX_MEMALIGN@
-@PIRANHA_VERSION@
-@PIRANHA_SYSTEM_LOGICAL_PROCESSOR_INFORMATION@
-@PIRANHA_HAVE_UINT128_T@
-@PIRANHA_HAVE_QUADMATH@
-@PIRANHA_HAVE_BOOST_MULTIPRECISION@
-// End of defines instantiated by CMake.
+#define BOOST_TEST_MODULE gastineau3_test
+#include <boost/test/unit_test.hpp>
 
-#include <cassert>
+#include <boost/lexical_cast.hpp>
 
-#define piranha_assert assert
+#include "../src/environment.hpp"
+#include "../src/integer.hpp"
+#include "../src/kronecker_monomial.hpp"
+#include "../src/settings.hpp"
 
-// NOTE: clang has to go first, as it might define __GNUC__ internally.
-// Same thing could happen with ICC.
-#if defined(__clang__)
-	#include "detail/config_clang.hpp"
-#elif defined(__INTEL_COMPILER)
-	#include "detail/config_intel.hpp"
-#elif defined(__GNUC__)
-	#include "detail/config_gcc.hpp"
-#else
-	// NOTE: addidtional compiler configurations go here or in separate file as above.
-	#define likely(x) (x)
-	#define unlikely(x) (x)
-#endif
+using namespace piranha;
 
-// Ugh.
-// http://web.archiveorange.com/archive/v/NDiIbUvkEafCV0VHMIwL
-#include <boost/integer_traits.hpp>
-static_assert(boost::integer_traits<long long>::const_max >= 0,"Buggy integer_traits implementation: please update the Boost libraries.");
+// Gastineau's polynomial multiplication test number 4. Calculate:
+// f * g
+// where
+// f = (1 + x + y + 2*z**2 + 3*t**3 + 5*u**5)**20
+// g = (1 + u + t + 2*z**2 + 3*y**3 + 5*x**5)**20
 
-#endif
+BOOST_AUTO_TEST_CASE(gastineau4_test)
+{
+	environment env;
+	if (boost::unit_test::framework::master_test_suite().argc > 1) {
+		settings::set_n_threads(boost::lexical_cast<unsigned>(boost::unit_test::framework::master_test_suite().argv[1u]));
+	}
+	BOOST_CHECK_EQUAL((gastineau4<integer,kronecker_monomial<>>().size()),95033335ull);
+}

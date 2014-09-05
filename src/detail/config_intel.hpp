@@ -18,40 +18,16 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef PIRANHA_CONFIG_HPP
-#define PIRANHA_CONFIG_HPP
+#ifndef PIRANHA_CONFIG_INTEL_HPP
+#define PIRANHA_CONFIG_INTEL_HPP
 
-// Start of defines instantiated by CMake.
-@PIRANHA_PTHREAD_AFFINITY@
-@PIRANHA_POSIX_MEMALIGN@
-@PIRANHA_VERSION@
-@PIRANHA_SYSTEM_LOGICAL_PROCESSOR_INFORMATION@
-@PIRANHA_HAVE_UINT128_T@
-@PIRANHA_HAVE_QUADMATH@
-@PIRANHA_HAVE_BOOST_MULTIPRECISION@
-// End of defines instantiated by CMake.
-
-#include <cassert>
-
-#define piranha_assert assert
-
-// NOTE: clang has to go first, as it might define __GNUC__ internally.
-// Same thing could happen with ICC.
-#if defined(__clang__)
-	#include "detail/config_clang.hpp"
-#elif defined(__INTEL_COMPILER)
-	#include "detail/config_intel.hpp"
-#elif defined(__GNUC__)
-	#include "detail/config_gcc.hpp"
-#else
-	// NOTE: addidtional compiler configurations go here or in separate file as above.
-	#define likely(x) (x)
-	#define unlikely(x) (x)
+#if __INTEL_COMPILER < 1500
+	#error Minimum Intel compiler version supported is 15.
 #endif
 
-// Ugh.
-// http://web.archiveorange.com/archive/v/NDiIbUvkEafCV0VHMIwL
-#include <boost/integer_traits.hpp>
-static_assert(boost::integer_traits<long long>::const_max >= 0,"Buggy integer_traits implementation: please update the Boost libraries.");
+#define likely(x) __builtin_expect((x),1)
+#define unlikely(x) __builtin_expect((x),0)
+
+#define PIRANHA_COMPILER_IS_INTEL
 
 #endif

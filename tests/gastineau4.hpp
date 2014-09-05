@@ -18,40 +18,35 @@
  *   59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.             *
  ***************************************************************************/
 
-#ifndef PIRANHA_CONFIG_HPP
-#define PIRANHA_CONFIG_HPP
+#ifndef PIRANHA_GASTINEAU4_HPP
+#define PIRANHA_GASTINEAU4_HPP
 
-// Start of defines instantiated by CMake.
-@PIRANHA_PTHREAD_AFFINITY@
-@PIRANHA_POSIX_MEMALIGN@
-@PIRANHA_VERSION@
-@PIRANHA_SYSTEM_LOGICAL_PROCESSOR_INFORMATION@
-@PIRANHA_HAVE_UINT128_T@
-@PIRANHA_HAVE_QUADMATH@
-@PIRANHA_HAVE_BOOST_MULTIPRECISION@
-// End of defines instantiated by CMake.
+#include <boost/timer/timer.hpp>
 
-#include <cassert>
+#include "../src/polynomial.hpp"
 
-#define piranha_assert assert
+namespace piranha
+{
 
-// NOTE: clang has to go first, as it might define __GNUC__ internally.
-// Same thing could happen with ICC.
-#if defined(__clang__)
-	#include "detail/config_clang.hpp"
-#elif defined(__INTEL_COMPILER)
-	#include "detail/config_intel.hpp"
-#elif defined(__GNUC__)
-	#include "detail/config_gcc.hpp"
-#else
-	// NOTE: addidtional compiler configurations go here or in separate file as above.
-	#define likely(x) (x)
-	#define unlikely(x) (x)
-#endif
+template <typename Cf,typename Key>
+inline polynomial<Cf,Key> gastineau4()
+{
+	typedef polynomial<Cf,Key> p_type;
+	p_type z("z"), t("t"), u("u"), x("x"), y("y");
 
-// Ugh.
-// http://web.archiveorange.com/archive/v/NDiIbUvkEafCV0VHMIwL
-#include <boost/integer_traits.hpp>
-static_assert(boost::integer_traits<long long>::const_max >= 0,"Buggy integer_traits implementation: please update the Boost libraries.");
+	auto f = (1 + x + y + 2*z*z + 3*t*t*t + 5*u*u*u*u*u);
+	auto g = (1 + u + t + 2*z*z + 3*y*y*y + 5*x*x*x*x*x);
+	auto tmp_f(f), tmp_g(g);
+	for (int i = 1; i < 20; ++i) {
+		f *= tmp_f;
+		g *= tmp_g;
+	}
+	{
+	boost::timer::auto_cpu_timer t;
+	return f * g;
+	}
+}
+
+}
 
 #endif
