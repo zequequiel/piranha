@@ -45,16 +45,32 @@ using float128 = __float128;
 inline namespace literals
 {
 
-inline float128 operator "" _f128(const char *s) noexcept
+/// Literal for piranha::float128.
+/**
+ * @param[in] s literal string.
+ *
+ * @return a piranha::float128 constructed from \p s.
+ */
+inline float128 operator "" _f128(const char *s)
 {
 	return ::strtoflt128(s,nullptr);
 }
 
 }
 
+/// Specialisation of piranha::print_coefficient_impl for piranha::float128.
 template <typename T>
 struct print_coefficient_impl<T,typename std::enable_if<std::is_same<T,float128>::value>::type>
 {
+	/// Call operator.
+	/**
+	 * @param[in,out] os target stream.
+	 * @param[in] cf target piranha::float128.
+	 *
+	 * @return reference to \p os.
+	 *
+	 * @throws std::invalid_argument in case of errors from the libquadmath functions.
+	 */
 	std::ostream &operator()(std::ostream &os, const float128 &cf) const
 	{
 		// Plenty of buffer.
@@ -98,7 +114,6 @@ namespace math
  * This specialisation is activated when one of the two types is piranha::float128 and the other is either
  * piranha::float128 or an arithmetic type.
  */
-// TODO extension to integer, rational and real arguments.
 template <typename T, typename U>
 struct pow_impl<T,U,detail::float128_pow_enabler<T,U>>
 {
@@ -111,7 +126,7 @@ struct pow_impl<T,U,detail::float128_pow_enabler<T,U>>
 	 *
 	 * @return \p x to the power of \p y.
 	 */
-	auto operator()(const T &x, const U &y) const noexcept -> decltype(::powq(x,y))
+	float128 operator()(const T &x, const U &y) const
 	{
 		return ::powq(x,y);
 	}
@@ -129,7 +144,7 @@ struct cos_impl<T,typename std::enable_if<std::is_same<T,float128>::value>::type
 	 * 
 	 * @return cosine of \p x.
 	 */
-	auto operator()(const T &x) const noexcept -> decltype(::cosq(x))
+	float128 operator()(const T &x) const
 	{
 		return ::cosq(x);
 	}
@@ -147,12 +162,11 @@ struct sin_impl<T,typename std::enable_if<std::is_same<T,float128>::value>::type
 	 * 
 	 * @return sine of \p x.
 	 */
-	auto operator()(const T &x) const noexcept -> decltype(::sinq(x))
+	float128 operator()(const T &x) const
 	{
 		return ::sinq(x);
 	}
 };
-
 
 /// Specialisation of the piranha::math::abs() functor for piranha::float128.
 template <typename T>
@@ -167,7 +181,7 @@ struct abs_impl<T,typename std::enable_if<std::is_same<float128,T>::value>::type
 		 * 
 		 * @return absolute value of \p x.
 		 */
-		auto operator()(const T &x) const noexcept -> decltype(::fabsq(x))
+		float128 operator()(const T &x) const
 		{
 			return ::fabsq(x);
 		}
