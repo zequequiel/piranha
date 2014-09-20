@@ -25,12 +25,15 @@
 
 #define FUSION_MAX_VECTOR_SIZE 20
 
+#include <boost/functional/hash.hpp>
 #include <boost/fusion/algorithm.hpp>
 #include <boost/fusion/include/algorithm.hpp>
 #include <boost/fusion/include/sequence.hpp>
 #include <boost/fusion/sequence.hpp>
 #include <boost/lexical_cast.hpp>
+#include <cmath>
 #include <cstddef>
+#include <functional>
 #include <gmp.h>
 #include <iostream>
 #include <limits>
@@ -46,6 +49,7 @@
 #include "../src/environment.hpp"
 #include "../src/math.hpp"
 #include "../src/mp_integer.hpp"
+#include "../src/print_tex_coefficient.hpp"
 #include "../src/type_traits.hpp"
 
 using integral_types = boost::mpl::vector<char,
@@ -340,6 +344,9 @@ BOOST_AUTO_TEST_CASE(mp_rational_constructor_test)
 {
 	environment env;
 	boost::mpl::for_each<size_types>(constructor_tester());
+	// Test we are not gobbling in mp_ints with different bit widths.
+	BOOST_CHECK((!std::is_constructible<mp_rational<16>,mp_integer<32>>::value));
+	BOOST_CHECK((!std::is_constructible<mp_rational<32>,mp_integer<16>>::value));
 }
 
 struct ll_tester
@@ -417,13 +424,13 @@ BOOST_AUTO_TEST_CASE(mp_rational_conversion_test)
 BOOST_AUTO_TEST_CASE(mp_rational_literal_test)
 {
 	auto q0 = 123_q;
-	BOOST_CHECK((std::is_same<mp_rational<>,decltype(q0)>::value));
+	BOOST_CHECK((std::is_same<rational,decltype(q0)>::value));
 	BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q0),"123");
 	q0 = -4_q;
 	BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q0),"-4");
 	BOOST_CHECK_THROW((q0 = 123.45_q),std::invalid_argument);
 	auto q1 = 3/4_q;
-	BOOST_CHECK((std::is_same<mp_rational<>,decltype(q1)>::value));
+	BOOST_CHECK((std::is_same<rational,decltype(q1)>::value));
 	BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q1),"3/4");
 	q1 = -4/2_q;
 	BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q1),"-2");
@@ -507,6 +514,9 @@ struct plus_tester
 		BOOST_CHECK((is_addable_in_place<int,q_type>::value));
 		BOOST_CHECK((is_addable_in_place<int_type,q_type>::value));
 		BOOST_CHECK((is_addable_in_place<double,q_type>::value));
+		// Check const fails.
+		BOOST_CHECK((!is_addable_in_place<const double,q_type>::value));
+		BOOST_CHECK((!is_addable_in_place<const int,q_type>::value));
 		// Check operations with self.
 		a += a.num();
 		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"9/2");
@@ -639,10 +649,11 @@ struct minus_tester
 		using int_type = typename q_type::int_type;
 		// Negation.
 		q_type tmp00{0};
+		BOOST_CHECK(has_negate<q_type>::value);
 		tmp00.negate();
 		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(tmp00),"0");
 		tmp00 = std::numeric_limits<unsigned long long>::max();
-		tmp00.negate();
+		math::negate(tmp00);
 		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(tmp00),
 			std::string("-") + boost::lexical_cast<std::string>(std::numeric_limits<unsigned long long>::max()));
 		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q_type{3,11}),boost::lexical_cast<std::string>(-q_type{3,-11}));
@@ -714,6 +725,9 @@ struct minus_tester
 		BOOST_CHECK((is_subtractable_in_place<int,q_type>::value));
 		BOOST_CHECK((is_subtractable_in_place<int_type,q_type>::value));
 		BOOST_CHECK((is_subtractable_in_place<double,q_type>::value));
+		// Check const fails.
+		BOOST_CHECK((!is_subtractable_in_place<const double,q_type>::value));
+		BOOST_CHECK((!is_subtractable_in_place<const int,q_type>::value));
 		// Check operations with self.
 		a -= a.num();
 		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"1/2");
@@ -899,6 +913,8 @@ struct mult_tester
 		BOOST_CHECK((is_multipliable_in_place<int,q_type>::value));
 		BOOST_CHECK((is_multipliable_in_place<int_type,q_type>::value));
 		BOOST_CHECK((is_multipliable_in_place<double,q_type>::value));
+		BOOST_CHECK((!is_multipliable_in_place<const double,q_type>::value));
+		BOOST_CHECK((!is_multipliable_in_place<const int,q_type>::value));
 		// Check operations with self.
 		a *= a.num();
 		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"25/2");
@@ -1093,6 +1109,8 @@ struct div_tester
 		BOOST_CHECK((is_divisible_in_place<int,q_type>::value));
 		BOOST_CHECK((is_divisible_in_place<int_type,q_type>::value));
 		BOOST_CHECK((is_divisible_in_place<double,q_type>::value));
+		BOOST_CHECK((!is_divisible_in_place<const double,q_type>::value));
+		BOOST_CHECK((!is_divisible_in_place<const int,q_type>::value));
 		// Check operations with self.
 		a /= a.num();
 		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(a),"1/5");
@@ -1233,6 +1251,17 @@ BOOST_AUTO_TEST_CASE(mp_rational_arith_test)
 	boost::mpl::for_each<size_types>(minus_tester());
 	boost::mpl::for_each<size_types>(mult_tester());
 	boost::mpl::for_each<size_types>(div_tester());
+	// Check with different bits size.
+	BOOST_CHECK((!is_addable_in_place<mp_rational<16>,mp_rational<32>>::value));
+	BOOST_CHECK((!is_addable_in_place<mp_rational<16>,mp_integer<32>>::value));
+	BOOST_CHECK((!is_addable<mp_rational<16>,mp_rational<32>>::value));
+	BOOST_CHECK((!is_addable<mp_rational<32>,mp_rational<16>>::value));
+	BOOST_CHECK((!is_addable<mp_rational<16>,mp_integer<32>>::value));
+	BOOST_CHECK((!is_addable<mp_integer<32>,mp_rational<16>>::value));
+	BOOST_CHECK((!is_subtractable<mp_rational<16>,mp_rational<32>>::value));
+	BOOST_CHECK((!is_subtractable<mp_rational<32>,mp_rational<16>>::value));
+	BOOST_CHECK((!is_subtractable<mp_rational<16>,mp_integer<32>>::value));
+	BOOST_CHECK((!is_subtractable<mp_integer<32>,mp_rational<16>>::value));
 }
 
 struct is_zero_tester
@@ -1329,18 +1358,660 @@ struct equality_tester
 		BOOST_CHECK_EQUAL(int_type(2),q_type(10,5));
 		BOOST_CHECK_EQUAL(q_type(10,5),2);
 		BOOST_CHECK_EQUAL(2,q_type(10,5));
+		BOOST_CHECK_EQUAL(q_type(10,5),2u);
+		BOOST_CHECK_EQUAL(2ll,q_type(10,5));
+		const auto radix = std::numeric_limits<double>::radix;
+		BOOST_CHECK_EQUAL(q_type(3,radix),3./radix);
+		BOOST_CHECK_EQUAL(3./radix,q_type(3,radix));
 		BOOST_CHECK(q_type(10,8) != q_type(-5,-3));
 		BOOST_CHECK(q_type(10,8) != q_type(-5,4));
 		BOOST_CHECK(q_type(10,8) != q_type(-5,4));
 		BOOST_CHECK(q_type(10,8) != int_type(1));
 		BOOST_CHECK(int_type(1) != q_type(10,8));
-		BOOST_CHECK(q_type(10,8) != int_type(1));
 		BOOST_CHECK(1 != q_type(10,8));
 		BOOST_CHECK(q_type(10,8) != 1);
+		BOOST_CHECK(char(2) != q_type(10,8));
+		BOOST_CHECK(q_type(10,8) != 2ull);
+		const auto radix_f = std::numeric_limits<float>::radix;
+		BOOST_CHECK(5.f/radix_f != q_type(2,radix_f));
+		BOOST_CHECK(q_type(2,radix_f) != 5.f/radix_f);
+		// Random testing.
+		std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(),std::numeric_limits<int>::max());
+		for (int i = 0; i < ntries; ++i) {
+			int a = dist(rng), b = dist(rng);
+			if (b == 0) {
+				continue;
+			}
+			q_type q0{a,b}, q1{a,b};
+			BOOST_CHECK_EQUAL(q0,q1);
+			BOOST_CHECK_EQUAL(q1,q0);
+			q1 += 1;
+			BOOST_CHECK(q0 != q1);
+			BOOST_CHECK(q1 != q0);
+			q0 *= b;
+			BOOST_CHECK_EQUAL(q0,int_type(a));
+			BOOST_CHECK_EQUAL(int_type(a),q0);
+			BOOST_CHECK_EQUAL(q0,a);
+			BOOST_CHECK_EQUAL(a,q0);
+			q0 += q_type{1,2};
+			BOOST_CHECK(q0 != int_type(a));
+			BOOST_CHECK(int_type(a) != q0);
+			BOOST_CHECK(q0 != a);
+			BOOST_CHECK(a != q0);
+		}
+	}
+};
+
+struct less_than_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		using int_type = typename q_type::int_type;
+		// A few simple tests.
+		BOOST_CHECK(!(q_type{} < q_type{0}));
+		BOOST_CHECK(!(q_type{0} < q_type{}));
+		BOOST_CHECK(q_type{-6} < q_type{-5});
+		BOOST_CHECK(!(q_type{-5} < q_type{-6}));
+		BOOST_CHECK(q_type(1,2) < q_type(3,4));
+		BOOST_CHECK(q_type(1,3) < q_type(1,2));
+		BOOST_CHECK(q_type(1,-2) < q_type(1,3));
+		BOOST_CHECK(int_type() < q_type(1,3));
+		BOOST_CHECK(int_type(4) < q_type(41,10));
+		BOOST_CHECK(q_type(39,-10) < int_type(8));
+		BOOST_CHECK(0 < q_type(1,3));
+		BOOST_CHECK((unsigned short)4 < q_type(41,10));
+		BOOST_CHECK(q_type(39,-10) < 8ll);
+		const auto radix = std::numeric_limits<double>::radix;
+		BOOST_CHECK(q_type(1,radix) < 1.);
+		BOOST_CHECK(1. < q_type(1 + radix,radix));
+		const auto radix_f = std::numeric_limits<float>::radix;
+		BOOST_CHECK(q_type(1,radix_f) < 1.f);
+		BOOST_CHECK(1.f < q_type(radix_f + radix_f,radix_f));
+		// Random testing.
+		mpq_raii m0, m1;
+		std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(),std::numeric_limits<int>::max());
+		for (int i = 0; i < ntries; ++i) {
+			int a = dist(rng), b = dist(rng), c = dist(rng), d = dist(rng);
+			if (b == 0 || d == 0) {
+				continue;
+			}
+			q_type q0{a,b}, q1{c,d};
+			// The mpq set function only works with unsigned type at the denom. Bypass using mpz directly.
+			if (b > 0) {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(b));
+			} else {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m0.m_mpq),static_cast<long>(b));
+			}
+			::mpq_canonicalize(&m0.m_mpq);
+			if (d > 0) {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(d));
+			} else {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m1.m_mpq),static_cast<long>(d));
+			}
+			::mpq_canonicalize(&m1.m_mpq);
+			bool cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) < 0;
+			BOOST_CHECK_EQUAL(cmp,q0 < q1);
+			// Transform the second rational operand into an integral.
+			::mpz_set_ui(mpq_denref(&m1.m_mpq),1u);
+			cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) < 0;
+			BOOST_CHECK_EQUAL(cmp,q0 < q1.num());
+			cmp = ::mpq_cmp(&m1.m_mpq,&m0.m_mpq) < 0;
+			BOOST_CHECK_EQUAL(cmp,q1.num() < q0);
+			cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) < 0;
+			// NOTE: the static casts here are ok because num/den are int originally.
+			BOOST_CHECK_EQUAL(cmp,q0 < static_cast<int>(q1.num()));
+			cmp = ::mpq_cmp(&m1.m_mpq,&m0.m_mpq) < 0;
+			BOOST_CHECK_EQUAL(cmp,static_cast<int>(q1.num()) < q0);
+		}
+	}
+};
+
+struct geq_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		using int_type = typename q_type::int_type;
+		// A few simple tests.
+		BOOST_CHECK(q_type{} >= q_type{0});
+		BOOST_CHECK(q_type{0} >= q_type{});
+		BOOST_CHECK(!(q_type{-6} >= q_type{-5}));
+		BOOST_CHECK(q_type{-5} >= q_type{-6});
+		BOOST_CHECK(q_type(3,4) >= q_type(1,2));
+		BOOST_CHECK(q_type(1,2) >= q_type(1,3));
+		BOOST_CHECK(q_type(1,3) >= q_type(1,-2));
+		BOOST_CHECK(q_type(1,3) >= int_type());
+		BOOST_CHECK(q_type(41,10) >= int_type(4));
+		BOOST_CHECK(int_type(8) >= q_type(39,-10));
+		BOOST_CHECK(q_type(1,3) >= 0);
+		BOOST_CHECK(q_type(41,10) >= (unsigned short)4);
+		BOOST_CHECK(8ll >= q_type(39,-10));
+		const auto radix = std::numeric_limits<double>::radix;
+		BOOST_CHECK(1. >= q_type(1,radix));
+		BOOST_CHECK(q_type(1 + radix,radix) >= 1.);
+		const auto radix_f = std::numeric_limits<float>::radix;
+		BOOST_CHECK(1.f >= q_type(1,radix_f));
+		BOOST_CHECK(q_type(radix_f + radix_f,radix_f) >= 1.f);
+		// Random testing.
+		mpq_raii m0, m1;
+		std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(),std::numeric_limits<int>::max());
+		for (int i = 0; i < ntries; ++i) {
+			int a = dist(rng), b = dist(rng), c = dist(rng), d = dist(rng);
+			if (b == 0 || d == 0) {
+				continue;
+			}
+			q_type q0{a,b}, q1{c,d};
+			// The mpq set function only works with unsigned type at the denom. Bypass using mpz directly.
+			if (b > 0) {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(b));
+			} else {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m0.m_mpq),static_cast<long>(b));
+			}
+			::mpq_canonicalize(&m0.m_mpq);
+			if (d > 0) {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(d));
+			} else {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m1.m_mpq),static_cast<long>(d));
+			}
+			::mpq_canonicalize(&m1.m_mpq);
+			bool cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) >= 0;
+			BOOST_CHECK_EQUAL(cmp,q0 >= q1);
+			// Transform the second rational operand into an integral.
+			::mpz_set_ui(mpq_denref(&m1.m_mpq),1u);
+			cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) >= 0;
+			BOOST_CHECK_EQUAL(cmp,q0 >= q1.num());
+			cmp = ::mpq_cmp(&m1.m_mpq,&m0.m_mpq) >= 0;
+			BOOST_CHECK_EQUAL(cmp,q1.num() >= q0);
+			cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) >= 0;
+			// NOTE: the static casts here are ok because num/den are int originally.
+			BOOST_CHECK_EQUAL(cmp,q0 >= static_cast<int>(q1.num()));
+			cmp = ::mpq_cmp(&m1.m_mpq,&m0.m_mpq) >= 0;
+			BOOST_CHECK_EQUAL(cmp,static_cast<int>(q1.num()) >= q0);
+		}
+	}
+};
+
+struct greater_than_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		using int_type = typename q_type::int_type;
+		// A few simple tests.
+		BOOST_CHECK(!(q_type{} > q_type{0}));
+		BOOST_CHECK(!(q_type{0} > q_type{}));
+		BOOST_CHECK(q_type{-5} > q_type{-6});
+		BOOST_CHECK(!(q_type{-6} > q_type{-5}));
+		BOOST_CHECK(q_type(3,4) > q_type(1,2));
+		BOOST_CHECK(q_type(1,2) > q_type(1,3));
+		BOOST_CHECK(q_type(1,3) > q_type(1,-2));
+		BOOST_CHECK(q_type(1,3) > int_type());
+		BOOST_CHECK(q_type(41,10) > int_type(4));
+		BOOST_CHECK(int_type(8) > q_type(39,-10));
+		BOOST_CHECK(q_type(1,3) > 0);
+		BOOST_CHECK(q_type(41,10) > (unsigned short)4);
+		BOOST_CHECK(8ll > q_type(39,-10));
+		const auto radix = std::numeric_limits<double>::radix;
+		BOOST_CHECK(1. > q_type(1,radix));
+		BOOST_CHECK(q_type(1 + radix,radix) > 1.);
+		const auto radix_f = std::numeric_limits<float>::radix;
+		BOOST_CHECK(1.f > q_type(1,radix_f));
+		BOOST_CHECK(q_type(radix_f + radix_f,radix_f) > 1.f);
+		// Random testing.
+		mpq_raii m0, m1;
+		std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(),std::numeric_limits<int>::max());
+		for (int i = 0; i < ntries; ++i) {
+			int a = dist(rng), b = dist(rng), c = dist(rng), d = dist(rng);
+			if (b == 0 || d == 0) {
+				continue;
+			}
+			q_type q0{a,b}, q1{c,d};
+			// The mpq set function only works with unsigned type at the denom. Bypass using mpz directly.
+			if (b > 0) {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(b));
+			} else {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m0.m_mpq),static_cast<long>(b));
+			}
+			::mpq_canonicalize(&m0.m_mpq);
+			if (d > 0) {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(d));
+			} else {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m1.m_mpq),static_cast<long>(d));
+			}
+			::mpq_canonicalize(&m1.m_mpq);
+			bool cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) > 0;
+			BOOST_CHECK_EQUAL(cmp,q0 > q1);
+			// Transform the second rational operand into an integral.
+			::mpz_set_ui(mpq_denref(&m1.m_mpq),1u);
+			cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) > 0;
+			BOOST_CHECK_EQUAL(cmp,q0 > q1.num());
+			cmp = ::mpq_cmp(&m1.m_mpq,&m0.m_mpq) > 0;
+			BOOST_CHECK_EQUAL(cmp,q1.num() > q0);
+			cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) > 0;
+			// NOTE: the static casts here are ok because num/den are int originally.
+			BOOST_CHECK_EQUAL(cmp,q0 > static_cast<int>(q1.num()));
+			cmp = ::mpq_cmp(&m1.m_mpq,&m0.m_mpq) > 0;
+			BOOST_CHECK_EQUAL(cmp,static_cast<int>(q1.num()) > q0);
+		}
+	}
+};
+
+struct leq_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		using int_type = typename q_type::int_type;
+		// A few simple tests.
+		BOOST_CHECK(q_type{} <= q_type{0});
+		BOOST_CHECK(q_type{0} <= q_type{});
+		BOOST_CHECK(!(q_type{-5} <= q_type{-6}));
+		BOOST_CHECK(q_type{-6} <= q_type{-5});
+		BOOST_CHECK(q_type(1,2) <= q_type(3,4));
+		BOOST_CHECK(q_type(1,3) <= q_type(1,2));
+		BOOST_CHECK(q_type(1,-2) <= q_type(1,3));
+		BOOST_CHECK(int_type() <= q_type(1,3));
+		BOOST_CHECK(int_type(4) <= q_type(41,10));
+		BOOST_CHECK(q_type(39,-10) <= int_type(8));
+		BOOST_CHECK(0 <= q_type(1,3));
+		BOOST_CHECK((unsigned short)4 <= q_type(41,10));
+		BOOST_CHECK(q_type(39,-10) <= 8ll);
+		const auto radix = std::numeric_limits<double>::radix;
+		BOOST_CHECK(q_type(1,radix) <= 1.);
+		BOOST_CHECK(1. <= q_type(1 + radix,radix));
+		const auto radix_f = std::numeric_limits<float>::radix;
+		BOOST_CHECK(q_type(1,radix_f) <= 1.f);
+		BOOST_CHECK(1.f <= q_type(radix_f + radix_f,radix_f));
+		// Random testing.
+		mpq_raii m0, m1;
+		std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(),std::numeric_limits<int>::max());
+		for (int i = 0; i < ntries; ++i) {
+			int a = dist(rng), b = dist(rng), c = dist(rng), d = dist(rng);
+			if (b == 0 || d == 0) {
+				continue;
+			}
+			q_type q0{a,b}, q1{c,d};
+			// The mpq set function only works with unsigned type at the denom. Bypass using mpz directly.
+			if (b > 0) {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(b));
+			} else {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m0.m_mpq),static_cast<long>(b));
+			}
+			::mpq_canonicalize(&m0.m_mpq);
+			if (d > 0) {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(d));
+			} else {
+				::mpq_set_si(&m1.m_mpq,static_cast<long>(c),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m1.m_mpq),static_cast<long>(d));
+			}
+			::mpq_canonicalize(&m1.m_mpq);
+			bool cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) <= 0;
+			BOOST_CHECK_EQUAL(cmp,q0 <= q1);
+			// Transform the second rational operand into an integral.
+			::mpz_set_ui(mpq_denref(&m1.m_mpq),1u);
+			cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) <= 0;
+			BOOST_CHECK_EQUAL(cmp,q0 <= q1.num());
+			cmp = ::mpq_cmp(&m1.m_mpq,&m0.m_mpq) <= 0;
+			BOOST_CHECK_EQUAL(cmp,q1.num() <= q0);
+			cmp = ::mpq_cmp(&m0.m_mpq,&m1.m_mpq) <= 0;
+			// NOTE: the static casts here are ok because num/den are int originally.
+			BOOST_CHECK_EQUAL(cmp,q0 <= static_cast<int>(q1.num()));
+			cmp = ::mpq_cmp(&m1.m_mpq,&m0.m_mpq) <= 0;
+			BOOST_CHECK_EQUAL(cmp,static_cast<int>(q1.num()) <= q0);
+		}
 	}
 };
 
 BOOST_AUTO_TEST_CASE(mp_rational_cmp_test)
 {
 	boost::mpl::for_each<size_types>(equality_tester());
+	boost::mpl::for_each<size_types>(less_than_tester());
+	boost::mpl::for_each<size_types>(geq_tester());
+	boost::mpl::for_each<size_types>(greater_than_tester());
+	boost::mpl::for_each<size_types>(leq_tester());
+}
+
+struct pow_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		using int_type = typename q_type::int_type;
+		// A few simple tests.
+		BOOST_CHECK_EQUAL(q_type().pow(0),1);
+		BOOST_CHECK_EQUAL(q_type().pow(0u),1);
+		BOOST_CHECK_EQUAL(q_type().pow(int_type()),1);
+		BOOST_CHECK_EQUAL(q_type().pow(1),0);
+		BOOST_CHECK_EQUAL(q_type().pow(2u),0);
+		BOOST_CHECK_EQUAL(q_type().pow(3),0);
+		BOOST_CHECK_EQUAL(q_type().pow(4ull),0);
+		BOOST_CHECK_EQUAL(q_type().pow(int_type(5)),0);
+		BOOST_CHECK_EQUAL(q_type().pow((unsigned char)5),0);
+		BOOST_CHECK_THROW(q_type().pow(-1),zero_division_error);
+		BOOST_CHECK_THROW(q_type().pow(char(-2)),zero_division_error);
+		BOOST_CHECK_THROW(q_type().pow(-3ll),zero_division_error);
+		BOOST_CHECK_THROW(q_type().pow(int_type(-3)),zero_division_error);
+		BOOST_CHECK_EQUAL(q_type(23,45).pow(7),q_type(3404825447ull,373669453125ull));
+		BOOST_CHECK_EQUAL(q_type(-23,45).pow(7),q_type(-3404825447ll,373669453125ull));
+		BOOST_CHECK_EQUAL(q_type(-23,45).pow(-7),q_type(373669453125ull,-3404825447ll));
+		// Random testing.
+		std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(),std::numeric_limits<int>::max());
+		std::uniform_int_distribution<int> edist(-10,10);
+		mpq_raii m0, m1;
+		for (int i = 0; i < ntries; ++i) {
+			int a = dist(rng), b = dist(rng), exp = edist(rng);
+			// Check the numerator as well as we don't want to run into zero division.
+			if (a == 0 || b == 0) {
+				continue;
+			}
+			q_type q0{a,b};
+			// The mpq set function only works with unsigned type at the denom. Bypass using mpz directly.
+			if (b > 0) {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(b));
+			} else {
+				::mpq_set_si(&m0.m_mpq,static_cast<long>(a),static_cast<unsigned long>(1));
+				::mpz_set_si(mpq_denref(&m0.m_mpq),static_cast<long>(b));
+			}
+			::mpq_canonicalize(&m0.m_mpq);
+			auto q1 = q0.pow(exp);
+			if (exp >= 0) {
+				::mpz_pow_ui(mpq_numref(&m1.m_mpq),mpq_numref(&m0.m_mpq),static_cast<unsigned long>(exp));
+				::mpz_pow_ui(mpq_denref(&m1.m_mpq),mpq_denref(&m0.m_mpq),static_cast<unsigned long>(exp));
+			} else {
+				::mpz_pow_ui(mpq_numref(&m1.m_mpq),mpq_denref(&m0.m_mpq),static_cast<unsigned long>(-exp));
+				::mpz_pow_ui(mpq_denref(&m1.m_mpq),mpq_numref(&m0.m_mpq),static_cast<unsigned long>(-exp));
+				::mpq_canonicalize(&m1.m_mpq);
+			}
+			BOOST_CHECK_EQUAL(mpq_lexcast(m1),boost::lexical_cast<std::string>(q1));
+			// Test math::pow().
+			BOOST_CHECK_EQUAL(math::pow(q0,exp),q1);
+			auto q2 = q0.pow(int_type(exp));
+			BOOST_CHECK_EQUAL(q1,q2);
+			BOOST_CHECK_EQUAL(math::pow(q0,int_type(exp)),q1);
+		}
+		// Rational-fp.
+		const auto radix = std::numeric_limits<double>::radix;
+		BOOST_CHECK((is_exponentiable<q_type,float>::value));
+		BOOST_CHECK((is_exponentiable<q_type,double>::value));
+		BOOST_CHECK_EQUAL(math::pow(q_type(1,radix),2.),std::pow(1./radix,2.));
+		BOOST_CHECK((std::is_same<float,decltype(math::pow(q_type(1),1.f))>::value));
+		BOOST_CHECK((std::is_same<long double,decltype(math::pow(q_type(1,radix),2.l))>::value));
+		// Rational-rational.
+		BOOST_CHECK_EQUAL(math::pow(q_type(1,radix),q_type(1,radix)),std::pow(1./radix,1./radix));
+		BOOST_CHECK((is_exponentiable<q_type,q_type>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::pow(q_type(1,radix),q_type(1,radix)))>::value));
+		// Fp-rational.
+		BOOST_CHECK((is_exponentiable<float,q_type>::value));
+		BOOST_CHECK((is_exponentiable<double,q_type>::value));
+		BOOST_CHECK((std::is_same<decltype(math::pow(2.,q_type(1,radix))),double>::value));
+		BOOST_CHECK((std::is_same<decltype(math::pow(2.f,q_type(1,radix))),float>::value));
+		BOOST_CHECK_EQUAL(math::pow(2.,q_type(1,radix)),std::pow(2.,1./radix));
+		// Integral-rational.
+		BOOST_CHECK((is_exponentiable<int,q_type>::value));
+		BOOST_CHECK((is_exponentiable<int_type,q_type>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::pow(2,q_type(1,radix)))>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::pow(int_type(2),q_type(1,radix)))>::value));
+		BOOST_CHECK_EQUAL(math::pow(2,q_type(1,radix)),std::pow(2.,1./radix));
+		BOOST_CHECK_EQUAL(math::pow(int_type(2),q_type(1,radix)),std::pow(2.,1./radix));
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_rational_pow_test)
+{
+	boost::mpl::for_each<size_types>(pow_tester());
+	BOOST_CHECK((!is_exponentiable<mp_rational<16>,mp_rational<32>>::value));
+	BOOST_CHECK((!is_exponentiable<mp_rational<16>,mp_integer<32>>::value));
+	BOOST_CHECK((!is_exponentiable<mp_integer<32>,mp_rational<16>>::value));
+	BOOST_CHECK((!is_exponentiable<mp_integer<32>,std::string>::value));
+}
+
+struct abs_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		BOOST_CHECK_EQUAL(q_type{}.abs(),q_type(0));
+		BOOST_CHECK_EQUAL(q_type(1,3).abs(),q_type(1,3));
+		BOOST_CHECK_EQUAL(q_type(1,-3).abs(),q_type(1,3));
+		BOOST_CHECK_EQUAL(q_type(-4,-3).abs(),q_type(4,3));
+		BOOST_CHECK_EQUAL(q_type(-4,5).abs(),q_type(4,5));
+		BOOST_CHECK_EQUAL(math::abs(q_type(-4,5)),q_type(4,5));
+		BOOST_CHECK_EQUAL(math::abs(q_type(4,-5)),q_type(4,5));
+		BOOST_CHECK_EQUAL(math::abs(q_type(-4,-5)),q_type(4,5));
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_rational_abs_test)
+{
+	boost::mpl::for_each<size_types>(abs_tester());
+}
+
+struct hash_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		using int_type = typename q_type::int_type;
+		BOOST_CHECK(is_hashable<q_type>::value);
+		BOOST_CHECK_EQUAL(q_type{3}.hash(),std::hash<q_type>()(q_type{3}));
+		BOOST_CHECK(q_type{3}.hash() != std::hash<q_type>()(q_type{3,2}));
+		BOOST_CHECK_EQUAL(q_type(4,5).hash(),std::hash<q_type>()(q_type(-8,-10)));
+		q_type q0{123,-456};
+		std::size_t h = q0.num().hash();
+		boost::hash_combine(h,std::hash<int_type>()(q0.den()));
+		BOOST_CHECK_EQUAL(h,q0.hash());
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_rational_hash_test)
+{
+	boost::mpl::for_each<size_types>(hash_tester());
+}
+
+struct print_tex_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		BOOST_CHECK(has_print_tex_coefficient<q_type>::value);
+		std::ostringstream ss;
+		print_tex_coefficient(ss,q_type(0));
+		BOOST_CHECK_EQUAL(ss.str(),"0");
+		ss.str("");
+		print_tex_coefficient(ss,q_type(-1));
+		BOOST_CHECK_EQUAL(ss.str(),"-1");
+		ss.str("");
+		print_tex_coefficient(ss,q_type(1));
+		BOOST_CHECK_EQUAL(ss.str(),"1");
+		ss.str("");
+		print_tex_coefficient(ss,q_type(1,2));
+		BOOST_CHECK_EQUAL(ss.str(),"\\frac{1}{2}");
+		ss.str("");
+		print_tex_coefficient(ss,q_type(1,-2));
+		BOOST_CHECK_EQUAL(ss.str(),"-\\frac{1}{2}");
+		ss.str("");
+		print_tex_coefficient(ss,q_type(-14,21));
+		BOOST_CHECK_EQUAL(ss.str(),"-\\frac{2}{3}");
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_rational_print_tex_test)
+{
+	boost::mpl::for_each<size_types>(print_tex_tester());
+}
+
+struct sin_cos_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		const auto radix = std::numeric_limits<double>::radix;
+		BOOST_CHECK_EQUAL(math::sin(q_type()),0.);
+		BOOST_CHECK_EQUAL(math::sin(q_type(1,radix)),math::sin(1./radix));
+		BOOST_CHECK_EQUAL(math::sin(q_type(1,-radix)),-math::sin(1./radix));
+		BOOST_CHECK_EQUAL(math::cos(q_type()),1.);
+		BOOST_CHECK_EQUAL(math::cos(q_type(1,radix)),math::cos(1./radix));
+		BOOST_CHECK_EQUAL(math::cos(q_type(1,-radix)),math::cos(1./radix));
+		BOOST_CHECK(has_sine<q_type>::value);
+		BOOST_CHECK(has_cosine<q_type>::value);
+		BOOST_CHECK((std::is_same<double,decltype(math::cos(q_type()))>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::sin(q_type()))>::value));
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_rational_sin_cos_test)
+{
+	boost::mpl::for_each<size_types>(sin_cos_tester());
+}
+
+struct sep_tester
+{
+	template <typename T>
+	using edict = std::unordered_map<std::string,T>;
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		BOOST_CHECK_EQUAL(math::partial(q_type{1},""),0);
+		BOOST_CHECK((std::is_same<q_type,decltype(math::partial(q_type{1},""))>::value));
+		BOOST_CHECK(is_differentiable<q_type>::value);
+		BOOST_CHECK_EQUAL(math::evaluate(q_type{12},edict<int>{{"",1}}),12);
+		BOOST_CHECK_EQUAL(math::evaluate(q_type{10},edict<double>{{"",1.321}}),10);
+		BOOST_CHECK((is_evaluable<q_type,int>::value));
+		BOOST_CHECK((is_evaluable<q_type,double>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(math::evaluate(q_type{10},edict<double>{{"",1.321}}))>::value));
+		BOOST_CHECK_EQUAL(math::subs(q_type{12},"",1),12);
+		BOOST_CHECK_EQUAL(math::subs(q_type{-122},"",1.56l),-122);
+		BOOST_CHECK((has_subs<q_type,int>::value));
+		BOOST_CHECK((has_subs<q_type,long double>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(math::subs(q_type{12},"",1))>::value));
+		BOOST_CHECK_EQUAL(math::ipow_subs(q_type{34},"",23_z,1),34);
+		BOOST_CHECK_EQUAL(math::ipow_subs(q_type(34,45),"",23_z,1.3),q_type(34,45));
+		BOOST_CHECK_EQUAL(math::ipow_subs(q_type(34,45),"",23_z,char(5)),q_type(34,45));
+		BOOST_CHECK_EQUAL(math::ipow_subs(q_type(34,45),"",23_z,5ull),q_type(34,45));
+		BOOST_CHECK((has_ipow_subs<q_type,int>::value));
+		BOOST_CHECK((has_ipow_subs<q_type,double>::value));
+		BOOST_CHECK((has_ipow_subs<q_type,float>::value));
+		BOOST_CHECK((has_ipow_subs<q_type,unsigned short>::value));
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_rational_sep_test)
+{
+	boost::mpl::for_each<size_types>(sep_tester());
+}
+
+BOOST_AUTO_TEST_CASE(mp_rational_integral_cast_test)
+{
+	BOOST_CHECK_EQUAL(math::integral_cast(rational()),0);
+	BOOST_CHECK_EQUAL(math::integral_cast(rational(2)),2);
+	BOOST_CHECK_EQUAL(math::integral_cast(rational(62,-2)),-31);
+	BOOST_CHECK_THROW(math::integral_cast(rational(1,-2)),std::invalid_argument);
+	BOOST_CHECK_THROW(math::integral_cast(rational("2/3") * 2),std::invalid_argument);
+	BOOST_CHECK(has_integral_cast<rational>::value);
+	BOOST_CHECK(has_integral_cast<rational &>::value);
+	BOOST_CHECK(has_integral_cast<rational const &>::value);
+	BOOST_CHECK(has_integral_cast<rational &&>::value);
+}
+
+struct binomial_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		using int_type = typename q_type::int_type;
+		// Some checks with integral values on top.
+		BOOST_CHECK_EQUAL(q_type{}.binomial(0),1);
+		BOOST_CHECK_EQUAL(q_type{}.binomial(1),0);
+		BOOST_CHECK_EQUAL(q_type{1}.binomial(1),1ull);
+		BOOST_CHECK_EQUAL(q_type{5}.binomial(3),int_type{10});
+		BOOST_CHECK_EQUAL(q_type{-5}.binomial(4),70);
+		BOOST_CHECK_EQUAL(q_type{-5}.binomial(4),int_type{70});
+		// Negative int on bottom, rational top.
+		BOOST_CHECK_EQUAL(q_type(5,3).binomial(-4),0);
+		BOOST_CHECK_EQUAL(q_type(5,3).binomial(int_type{-1}),0);
+		// Type traits checking.
+		BOOST_CHECK((has_binomial<q_type,int_type>::value));
+		BOOST_CHECK((has_binomial<q_type,int>::value));
+		BOOST_CHECK((has_binomial<q_type,unsigned short>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(math::binomial(q_type{},4))>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(math::binomial(q_type{},int_type{4}))>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(math::binomial(q_type{},char(4)))>::value));
+		BOOST_CHECK((has_binomial<q_type,double>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::binomial(q_type{},4.))>::value));
+		BOOST_CHECK((has_binomial<q_type,q_type>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::binomial(q_type{},q_type{}))>::value));
+		BOOST_CHECK((has_binomial<int,q_type>::value));
+		BOOST_CHECK((has_binomial<int_type,q_type>::value));
+		BOOST_CHECK((has_binomial<long,q_type>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::binomial(4,q_type{}))>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::binomial(int_type(4),q_type{}))>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::binomial((long long)4,q_type{}))>::value));
+		// Some simple checks.
+		BOOST_CHECK_EQUAL(q_type(3,4).binomial(2),-q_type(3,32));
+		BOOST_CHECK_EQUAL(q_type(3,4).binomial(10),-q_type(1057485,268435456ll));
+		BOOST_CHECK_EQUAL(q_type(3,4).binomial(0),1);
+		BOOST_CHECK_EQUAL(q_type(3,4).binomial(-1),0);
+		BOOST_CHECK_EQUAL(q_type(3,4).binomial(-2),0);
+		BOOST_CHECK_EQUAL(q_type(3,4).binomial(-10ll),0);
+		BOOST_CHECK_EQUAL(q_type(3,-4).binomial(0),1);
+		BOOST_CHECK_EQUAL(q_type(3,-4).binomial(1),-q_type(3,4));
+		BOOST_CHECK_EQUAL(q_type(3,-4).binomial(5),-q_type(4389,8192));
+		BOOST_CHECK_EQUAL(q_type(3,-4).binomial(-1),0);
+		BOOST_CHECK_EQUAL(q_type(3,-4).binomial(-5),0);
+		BOOST_CHECK_EQUAL(math::binomial(1,q_type{3,4}),math::binomial(1.,3./4.));
+		BOOST_CHECK_EQUAL(math::binomial(q_type{2,3},q_type{3,4}),math::binomial(2./3.,3./4.));
+		BOOST_CHECK_EQUAL(math::binomial(1.2,q_type{3,4}),math::binomial(1.2,3./4.));
+		BOOST_CHECK_EQUAL(math::binomial(q_type{3,4},1.2),math::binomial(3./4.,1.2));
+		// NOTE: cannot really do random testing at the moment as the implementation of
+		// generic_binomial is way too slow.
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_rational_binomial_test)
+{
+	boost::mpl::for_each<size_types>(binomial_tester());
+	BOOST_CHECK((!has_binomial<mp_rational<32>,mp_rational<16>>::value));
+	BOOST_CHECK((!has_binomial<mp_rational<16>,mp_rational<32>>::value));
+	BOOST_CHECK((!has_binomial<mp_rational<16>,mp_integer<32>>::value));
+	BOOST_CHECK((!has_binomial<mp_rational<32>,mp_integer<16>>::value));
+}
+
+struct stream_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		using q_type = mp_rational<T::value>;
+		q_type q(42,-5);
+		std::stringstream ss;
+		ss << q;
+		BOOST_CHECK_EQUAL(ss.str(),"-42/5");
+		q = 0;
+		ss >> q;
+		BOOST_CHECK_EQUAL(q,q_type(-42,5));
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_rational_stream_test)
+{
+	boost::mpl::for_each<size_types>(stream_tester());
 }

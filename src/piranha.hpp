@@ -121,6 +121,8 @@
  * to compile right now.
  * \todo we should probably add a "run under valgrind" option in CMake when in Debug mode. When this is active, we should disable
  * all uses of long double in the tests as valgrind cannot cope with it.
+ * \todo math::is_zero() is used to determine ignorability of a term in a noexcept method in base_term. Should we require it to be
+ * noexcept as well and put the requirement in the is_cf type trait?
  */
 namespace piranha
 {
@@ -146,7 +148,6 @@ inline namespace literals {}
 #include "environment.hpp"
 #include "exceptions.hpp"
 #include "hash_set.hpp"
-#include "integer.hpp"
 #include "kronecker_array.hpp"
 #include "kronecker_monomial.hpp"
 #include "math.hpp"
@@ -162,7 +163,6 @@ inline namespace literals {}
 #include "print_coefficient.hpp"
 #include "print_tex_coefficient.hpp"
 #include "quadmath.hpp"
-#include "rational.hpp"
 #include "real.hpp"
 #include "real_trigonometric_kronecker_monomial.hpp"
 #include "runtime_info.hpp"

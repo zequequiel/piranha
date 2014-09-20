@@ -44,6 +44,8 @@
 #include "debug_access.hpp"
 #include "detail/is_digit.hpp"
 #include "detail/mp_rational_fwd.hpp"
+#include "detail/real_fwd.hpp"
+#include "detail/sfinae_types.hpp"
 #include "exceptions.hpp"
 #include "math.hpp"
 #include "type_traits.hpp"
@@ -1014,6 +1016,14 @@ union integer_union
 		d_storage	m_dy;
 };
 
+// Detect type interoperable with mp_integer.
+template <typename T>
+struct is_mp_integer_interoperable_type
+{
+	static const bool value = std::is_floating_point<T>::value ||
+		std::is_integral<T>::value;
+};
+
 }
 
 /// Multiple precision integer class.
@@ -1027,7 +1037,7 @@ union integer_union
  * A value of 64 is supported on some platforms. The special
  * default value of 0 is used to automatically select the optimal \p NBits value on the current platform.
  * 
- * \section interop Interoperability with fundamental types
+ * \section interop Interoperability with other types
  * 
  * Full interoperability with all integral and floating-point C++ types is provided.
  * 
@@ -1059,7 +1069,6 @@ union integer_union
 /*
  * TODO
  * - more type traits tests, check wrt old integer tests.
- * - check if we can just make a single friend here, in the same way as done in piranha::integer for the pow_impl access.
  * TODO performance improvements:
  *   - it seems like for a bunch of operations we do not need GMP anymore (e.g., conversion to float),
  *     we can use mp_integer directly - this could be a performance improvement;
@@ -1083,21 +1092,21 @@ union integer_union
  *   cos(x) in which x an mp_integer (passed in from Python, for instance). If we overload cos() to produce a double for int argument,
  *   then we need to convert x to double and then compute cos(x).
  * - when converting to/from Python we can speed up operations by trying casting around to hardware integers, if range is enough.
+ * - use a unified shortcut for the possible optimisation when the two limb type coincide (e.g., same_limbs_type = true constexpr).
+ * - clean up the uses of sfinae to conform to the new-style of enable_if<..,int> = 0.
  */
 template <int NBits = 0>
 class mp_integer
 {
-		// Make friend with debugging class and mp_rational.
+		// Make friend with debugging class, mp_rational and real.
 		template <typename>
 		friend class debug_access;
 		template <int>
 		friend class mp_rational;
+		friend class real;
+		// Import the interoperable types detector.
 		template <typename T>
-		struct is_interoperable_type
-		{
-			static const bool value = std::is_floating_point<T>::value ||
-				std::is_integral<T>::value;
-		};
+		using is_interoperable_type = detail::is_mp_integer_interoperable_type<T>;
 		// Types allowed in binary operations involving mp_integer.
 		template <typename T, typename U>
 		struct are_binary_op_types: std::integral_constant<bool,
@@ -1114,7 +1123,7 @@ class mp_integer
 		// Metaprogramming to establish the return type of binary arithmetic operations involving mp_integers.
 		// Default result type will be mp_integer itself; for consistency with C/C++ when one of the arguments
 		// is a floating point type, we will return a value of the same floating point type.
-		template <typename T, typename U, typename Enable = void>
+		template <typename T, typename U, typename = void>
 		struct deduce_binary_op_result_type
 		{
 			using type = mp_integer;
@@ -2113,6 +2122,24 @@ class mp_integer
 				return detail::stream_mpz(os,n.m_int.g_dy());
 			}
 		}
+		/// Overload input stream operator for piranha::mp_integer.
+		/**
+		 * Equivalent to extracting a line from the stream and then assigning it to \p n.
+		 *
+		 * @param[in] is input stream.
+		 * @param[in,out] n integer to which the contents of the stream will be assigned.
+		 *
+		 * @return reference to \p is.
+		 *
+		 * @throws unspecified any exception thrown by the constructor from string of piranha::mp_integer.
+		 */
+		friend std::istream &operator>>(std::istream &is, mp_integer &n)
+		{
+			std::string tmp_str;
+			std::getline(is,tmp_str);
+			n = tmp_str;
+			return is;
+		}
 		/// Promote to dynamic storage.
 		/**
 		 * This method will promote \p this to dynamic storage, if \p this is currently stored in static
@@ -2906,15 +2933,11 @@ class mp_integer
 			if (unlikely(sign() < 0)) {
 				piranha_throw(std::invalid_argument,"cannot compute the next prime of a negative number");
 			}
-			// NOTE: lots of optimisations here as well, ideally we should use just a single memory allocation,
-			// and demote to static if it fits.
 			mp_integer retval;
 			retval.promote();
-			auto copy(*this);
-			if (copy.is_static()) {
-				copy.promote();
-			}
-			::mpz_nextprime(&retval.m_int.g_dy(),&copy.m_int.g_dy());
+			auto v = get_mpz_view();
+			::mpz_nextprime(&retval.m_int.g_dy(),v);
+			// NOTE: demote opportunity.
 			return retval;
 		}
 		/// Check if \p this is a prime number
@@ -2935,11 +2958,8 @@ class mp_integer
 			if (unlikely(sign() < 0)) {
 				piranha_throw(std::invalid_argument,"cannot run primality tests on a negative number");
 			}
-			auto copy(*this);
-			if (copy.is_static()) {
-				copy.promote();
-			}
-			return ::mpz_probab_prime_p(&copy.m_int.g_dy(),reps);
+			auto v = get_mpz_view();
+			return ::mpz_probab_prime_p(v,reps);
 		}
 		/// Integer square root.
 		/**
@@ -2974,6 +2994,7 @@ class mp_integer
 			if (*this > 100000L || sign() < 0) {
 				piranha_throw(std::invalid_argument,"invalid input for factorial()");
 			}
+			// NOTE: demote opportunity.
 			mp_integer retval;
 			retval.promote();
 			::mpz_fac_ui(&retval.m_int.g_dy(),static_cast<unsigned long>(*this));
@@ -3012,22 +3033,42 @@ class mp_integer
 		 *
 		 * @return \p this choose \p k.
 		 *
-		 * @throws std::invalid_argument if \p k cannot be converted successfully to <tt>unsigned long</tt>.
+		 * @throws std::invalid_argument if \p k is outside an implementation-defined range.
 		 */
 		template <typename T, typename = typename std::enable_if<std::is_integral<T>::value ||
 			std::is_same<mp_integer,T>::value>::type>
 		mp_integer binomial(const T &k) const
 		{
-			mp_integer retval(*this);
-			if (is_static()) {
-				retval.promote();
+			if (k >= T(0)) {
+				mp_integer retval(*this);
+				if (is_static()) {
+					retval.promote();
+				}
+				// NOTE: demote opportunity.
+				::mpz_bin_ui(&retval.m_int.g_dy(),&retval.m_int.g_dy(),check_choose_k(k));
+				return retval;
+			} else {
+				// This is the case k < 0, handled according to:
+				// http://arxiv.org/abs/1105.3689/
+				if (sign() >= 0) {
+					// n >= 0, k < 0.
+					return mp_integer{0};
+				} else {
+					// n < 0, k < 0.
+					if (k <= *this) {
+						return mp_integer{-1}.pow(*this - k) * (-mp_integer{k} - 1).binomial(*this - k);
+					} else {
+						return mp_integer{0};
+					}
+				}
 			}
-			::mpz_bin_ui(&retval.m_int.g_dy(),&retval.m_int.g_dy(),check_choose_k(k));
-			return retval;
 		}
 	private:
 		detail::integer_union<NBits> m_int;
 };
+
+/// Alias for piranha::mp_integer with default bit size.
+using integer = mp_integer<>;
 
 namespace detail
 {
@@ -3110,32 +3151,135 @@ struct is_zero_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::
 	}
 };
 
-/// Specialisation of the piranha::math::pow() functor for piranha::mp_integer.
+}
+
+namespace detail
+{
+
+template <typename T, typename U>
+using integer_pow_enabler = typename std::enable_if<
+	(is_mp_integer<T>::value && is_mp_integer_interoperable_type<U>::value) ||
+	(is_mp_integer<U>::value && is_mp_integer_interoperable_type<T>::value) ||
+	// NOTE: here we are catching two arguments with potentially different
+	// bits. BUT this case is not caught in the pow_impl, so we should be ok as long
+	// as we don't allow interoperablity with different bits.
+	(is_mp_integer<T>::value && is_mp_integer<U>::value) ||
+	(std::is_integral<T>::value && std::is_integral<U>::value)
+>::type;
+
+// Binomial follows the same rules as pow.
+template <typename T, typename U>
+using integer_binomial_enabler = integer_pow_enabler<T,U>;
+
+}
+
+namespace math
+{
+
+/// Specialisation of the piranha::math::pow() functor for piranha::mp_integer and integral types.
 /**
- * This specialisation is enabled when \p T is an instance of piranha::mp_integer.
+ * This specialisation is activated when:
+ * - one of the arguments is piranha::mp_integer and the other is either
+ *   piranha::mp_integer or an interoperable type for piranha::mp_integer,
+ * - both arguments are integral types.
+ *
+ * The implementation follows these rules:
+ * - if the arguments are both piranha::mp_integer, or a piranha::mp_integer and an integral type, then piranha::mp_integer::pow() is used
+ *   to compute the result (after any necessary conversion),
+ * - if both arguments are integral types, piranha::mp_integer::pow() is used after the conversion of the base
+ *   to piranha::mp_integer,
+ * - otherwise, the piranha::mp_integer argument is converted to the floating-point type and \p piranha::math::pow() is
+ *   used to compute the result.
  */
 template <typename T, typename U>
-struct pow_impl<T,U,typename std::enable_if<detail::is_mp_integer<T>::value>::type>
+struct pow_impl<T,U,detail::integer_pow_enabler<T,U>>
 {
-	/// Call operator.
+	/// Call operator, integral--integral overload.
 	/**
-	 * \note
-	 * This operator is enabled only if the corresponding call to piranha::mp_integer::pow()
-	 * is well-formed.
+	 * @param[in] b base.
+	 * @param[in] e exponent.
 	 *
-	 * The exponentiation will be computed via piranha::mp_integer::pow().
-	 * 
-	 * @param[in] n base.
-	 * @param[in] x exponent.
-	 * 
-	 * @return \p n to the power of \p x.
-	 * 
-	 * @throws unspecified any exception resulting from piranha::mp_integer::pow().
+	 * @returns <tt>b**e</tt>.
+	 *
+	 * @throws unspecified any exception thrown by piranha::mp_integer::pow()
+	 * or by the constructor of piranha::mp_integer from integral type.
 	 */
-	template <typename U2>
-	auto operator()(const T &n, const U2 &x) const -> decltype(n.pow(x))
+	template <typename T2, typename U2, typename std::enable_if<std::is_integral<T2>::value &&
+		std::is_integral<U2>::value,int>::type = 0>
+	integer operator()(const T2 &b, const U2 &e) const
 	{
-		return n.pow(x);
+		return integer(b).pow(e);
+	}
+	/// Call operator, piranha::mp_integer overload.
+	/**
+	 * @param[in] b base.
+	 * @param[in] e exponent.
+	 *
+	 * @returns <tt>b**e</tt>.
+	 *
+	 * @throws unspecified any exception thrown by piranha::mp_integer::pow()
+	 * or by the constructor of piranha::mp_integer from integral type.
+	 */
+	template <int NBits>
+	mp_integer<NBits> operator()(const mp_integer<NBits> &b, const mp_integer<NBits> &e) const
+	{
+		return b.pow(e);
+	}
+	/// Call operator, integer--integral overload.
+	/**
+	 * @param[in] b base.
+	 * @param[in] e exponent.
+	 *
+	 * @returns <tt>b**e</tt>.
+	 *
+	 * @throws unspecified any exception thrown by piranha::mp_integer::pow().
+	 */
+	template <int NBits, typename T2, typename std::enable_if<std::is_integral<T2>::value,int>::type = 0>
+	mp_integer<NBits> operator()(const mp_integer<NBits> &b, const T2 &e) const
+	{
+		return b.pow(e);
+	}
+	/// Call operator, integer--floating-point overload.
+	/**
+	 * @param[in] b base.
+	 * @param[in] e exponent.
+	 *
+	 * @returns <tt>b**e</tt>.
+	 *
+	 * @throws unspecified any exception thrown by converting piranha::mp_integer to a floating-point type.
+	 */
+	template <int NBits, typename T2, typename std::enable_if<std::is_floating_point<T2>::value,int>::type = 0>
+	T2 operator()(const mp_integer<NBits> &b, const T2 &e) const
+	{
+		return math::pow(static_cast<T2>(b),e);
+	}
+	/// Call operator, integral--integer overload.
+	/**
+	 * @param[in] b base.
+	 * @param[in] e exponent.
+	 *
+	 * @returns <tt>b**e</tt>.
+	 *
+	 * @throws unspecified any exception thrown by piranha::mp_integer::pow().
+	 */
+	template <int NBits, typename T2, typename std::enable_if<std::is_integral<T2>::value,int>::type = 0>
+	mp_integer<NBits> operator()(const T2 &b, const mp_integer<NBits> &e) const
+	{
+		return mp_integer<NBits>(b).pow(e);
+	}
+	/// Call operator, floating-point--integer overload.
+	/**
+	 * @param[in] b base.
+	 * @param[in] e exponent.
+	 *
+	 * @returns <tt>b**e</tt>.
+	 *
+	 * @throws unspecified any exception thrown by converting piranha::mp_integer to a floating-point type.
+	 */
+	template <int NBits, typename T2, typename std::enable_if<std::is_floating_point<T2>::value,int>::type = 0>
+	T2 operator()(const T2 &b, const mp_integer<NBits> &e) const
+	{
+		return math::pow(b,static_cast<T2>(e));
 	}
 };
 
@@ -3167,19 +3311,18 @@ struct sin_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::type
 {
 	/// Call operator.
 	/**
-	 * The operation will return zero if \p n is also zero, otherwise an
-	 * exception will be thrown.
+	 * The argument will be converted to \p double and piranha::math::sin()
+	 * will then be used.
 	 *
 	 * @param[in] n argument.
 	 *
 	 * @return sine of \p n.
+	 *
+	 * @throws unspecified any exception thrown by converting piranha::mp_integer to \p double.
 	 */
-	T operator()(const T &n) const
+	double operator()(const T &n) const
 	{
-		if (n.sign() == 0) {
-			return T{};
-		}
-		piranha_throw(std::invalid_argument,"cannot calculate the sine of a nonzero integer");
+		return math::sin(static_cast<double>(n));
 	}
 };
 
@@ -3192,19 +3335,18 @@ struct cos_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::type
 {
 	/// Call operator.
 	/**
-	 * The operation will return one if \p n is zero, otherwise an
-	 * exception will be thrown.
+	 * The argument will be converted to \p double and piranha::math::cos()
+	 * will then be used.
 	 *
 	 * @param[in] n argument.
 	 *
 	 * @return cosine of \p n.
+	 *
+	 * @throws unspecified any exception thrown by converting piranha::mp_integer to \p double.
 	 */
-	T operator()(const T &n) const
+	double operator()(const T &n) const
 	{
-		if (n.sign() == 0) {
-			return T{1};
-		}
-		piranha_throw(std::invalid_argument,"cannot calculate the cosine of a nonzero integer");
+		return math::cos(static_cast<double>(n));
 	}
 };
 
@@ -3267,62 +3409,316 @@ struct subs_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::typ
 
 /// Specialisation of the piranha::math::binomial() functor for piranha::mp_integer.
 /**
- * This specialisation is enabled when \p T is an instance of piranha::mp_integer.
+ * This specialisation is activated when:
+ * - one of the arguments is piranha::mp_integer and the other is either
+ *   piranha::mp_integer or an interoperable type for piranha::mp_integer,
+ * - both arguments are integral types.
+ *
+ * The implementation follows these rules:
+ * - if the arguments are both piranha::mp_integer, or a piranha::mp_integer and an integral type, then piranha::mp_integer::binomial() is used
+ *   to compute the result (after any necessary conversion),
+ * - if both arguments are integral types, piranha::mp_integer::binomial() is used after the conversion of the top argument
+ *   to piranha::mp_integer,
+ * - otherwise, the piranha::mp_integer argument is converted to the floating-point type and \p piranha::math::binomial() is
+ *   used to compute the result.
  */
 template <typename T, typename U>
-struct binomial_impl<T,U,typename std::enable_if<detail::is_mp_integer<T>::value>::type>
+struct binomial_impl<T,U,detail::integer_binomial_enabler<T,U>>
 {
-	/// Call operator.
+	/// Call operator, integral--integral overload.
 	/**
-	 * \note
-	 * This call operator is enabled only if \p k can be used as argument to piranha::mp_integer::binomial().
+	 * @param[in] x top argument.
+	 * @param[in] y bottom argument.
 	 *
-	 * @param[in] n top number.
-	 * @param[in] k bottom number.
+	 * @returns \f$ x \choose y \f$.
 	 *
-	 * @return \p n choose \p k.
+	 * @throws unspecified any exception thrown by constructing piranha::mp_integer
+	 * or by piranha::mp_integer::binomial().
+	 */
+	template <typename T2, typename U2, typename std::enable_if<std::is_integral<T2>::value &&
+		std::is_integral<U2>::value,int>::type = 0>
+	integer operator()(const T2 &x, const U2 &y) const
+	{
+		return integer(x).binomial(y);
+	}
+	/// Call operator, piranha::mp_integer overload.
+	/**
+	 * @param[in] x top argument.
+	 * @param[in] y bottom argument.
+	 *
+	 * @returns \f$ x \choose y \f$.
 	 *
 	 * @throws unspecified any exception thrown by piranha::mp_integer::binomial().
 	 */
-	template <typename U2>
-	auto operator()(const T &n, const U2 &k) const -> decltype(n.binomial(k))
+	template <int NBits>
+	mp_integer<NBits> operator()(const mp_integer<NBits> &x, const mp_integer<NBits> &y) const
 	{
-		return n.binomial(k);
+		return x.binomial(y);
+	}
+	/// Call operator, integer--integral overload.
+	/**
+	 * @param[in] x top argument.
+	 * @param[in] y bottom argument.
+	 *
+	 * @returns \f$ x \choose y \f$.
+	 *
+	 * @throws unspecified any exception thrown by piranha::mp_integer::binomial().
+	 */
+	template <int NBits, typename T2, typename std::enable_if<std::is_integral<T2>::value,int>::type = 0>
+	mp_integer<NBits> operator()(const mp_integer<NBits> &x, const T2 &y) const
+	{
+		return x.binomial(y);
+	}
+	/// Call operator, integer--floating-point overload.
+	/**
+	 * @param[in] x top argument.
+	 * @param[in] y bottom argument.
+	 *
+	 * @returns \f$ x \choose y \f$.
+	 *
+	 * @throws unspecified any exception thrown by the conversion operator of piranha::mp_integer
+	 * or by piranha::math::binomial().
+	 */
+	template <int NBits, typename T2, typename std::enable_if<std::is_floating_point<T2>::value,int>::type = 0>
+	T2 operator()(const mp_integer<NBits> &x, const T2 &y) const
+	{
+		return math::binomial(static_cast<T2>(x),y);
+	}
+	/// Call operator, integral--integer overload.
+	/**
+	 * @param[in] x top argument.
+	 * @param[in] y bottom argument.
+	 *
+	 * @returns \f$ x \choose y \f$.
+	 *
+	 * @throws unspecified any exception thrown by constructing piranha::mp_integer
+	 * or by piranha::mp_integer::binomial().
+	 */
+	template <int NBits, typename T2, typename std::enable_if<std::is_integral<T2>::value,int>::type = 0>
+	mp_integer<NBits> operator()(const T2 &x, const mp_integer<NBits> &y) const
+	{
+		return mp_integer<NBits>(x).binomial(y);
+	}
+	/// Call operator, floating-point--integer overload.
+	/**
+	 * @param[in] x top argument.
+	 * @param[in] y bottom argument.
+	 *
+	 * @returns \f$ x \choose y \f$.
+	 *
+	 * @throws unspecified any exception thrown by the conversion operator of piranha::mp_integer
+	 * or by piranha::math::binomial().
+	 */
+	template <int NBits, typename T2, typename std::enable_if<std::is_floating_point<T2>::value,int>::type = 0>
+	T2 operator()(const T2 &x, const mp_integer<NBits> &y) const
+	{
+		return math::binomial(x,static_cast<T2>(y));
 	}
 };
 
-/// Specialisation of the piranha::math::binomial() functor for integral types.
+/// Factorial.
 /**
- * This specialisation is enabled if \p T is an integral type.
+ * @param[in] n factorial argument.
+ *
+ * @return the output of piranha::mp_integer::factorial().
+ *
+ * @throws unspecified any exception thrown by piranha::mp_integer::factorial().
  */
-template <typename T, typename U>
-struct binomial_impl<T,U,typename std::enable_if<std::is_integral<T>::value>::type>
+template <int NBits>
+inline mp_integer<NBits> factorial(const mp_integer<NBits> &n)
+{
+	return n.factorial();
+}
+
+/// Default implementation of the piranha::math::integral_cast functor.
+/**
+ * This functor should be specialised using the \p std::enable_if mechanism.
+ * Default implementation will not define any call operator.
+ */
+template <typename T, typename = void>
+struct integral_cast_impl
+{};
+
+/// Specialisation of the piranha::math::integral_cast functor for floating-point types.
+template <typename T>
+struct integral_cast_impl<T,typename std::enable_if<std::is_floating_point<T>::value>::type>
 {
 	/// Call operator.
 	/**
-	 * \note
-	 * This call operator is enabled only if \p k can be used as second argument to piranha::mp_integer::binomial().
+	 * The call will be successful if \p x is finite and representing an integer value.
 	 *
-	 * The input integral value will be converted to piranha::mp_integer<>, and piranha::mp_integer::binomial() will then be
-	 * used to compute the return value.
+	 * @param[in] x cast argument.
 	 *
-	 * @param[in] n top number.
-	 * @param[in] k bottom number.
+	 * @return result of the cast operation.
 	 *
-	 * @return \p n choose \p k.
-	 *
-	 * @throws unspecified any exception thrown by constructing piranha::mp_integer from \p n or by piranha::mp_integer::binomial().
+	 * @throws std::invalid_argument if the conversion is not successful.
 	 */
-	template <typename U1>
-	auto operator()(const T &n, const U1 &k) const -> decltype(mp_integer<>(n).binomial(k))
+	integer operator()(const T &x) const
 	{
-		return mp_integer<>(n).binomial(k);
+		if (!std::isfinite(x) || std::trunc(x) != x) {
+			piranha_throw(std::invalid_argument,"invalid floating point value");
+		}
+		return integer{x};
 	}
 };
 
+/// Specialisation of the piranha::math::integral_cast functor for integral types.
+template <typename T>
+struct integral_cast_impl<T,typename std::enable_if<std::is_integral<T>::value || std::is_same<integer,T>::value>::type>
+{
+	/// Call operator.
+	/**
+	 * The call will always be successful and will return a piranha::mp_integer constructed from \p x.
+	 *
+	 * @param[in] x cast argument.
+	 *
+	 * @return a piranha::mp_integer constructed from \p x.
+	 */
+	integer operator()(const T &x) const
+	{
+		return integer{x};
+	}
+};
+
+/// Integral cast.
+/**
+ * Will cast input value to piranha::mp_integer if the conversion is exact.
+ * The actual implementation of this function is in the piranha::math::integral_cast_impl functor's call operator.
+ * Any exception thrown by the implementation will be ignored and recast as a \p std::invalid_argument.
+ *
+ * @param[in] x cast argument.
+ *
+ * @return \p x cast to piranha::mp_integer if the conversion is exact.
+ *
+ * @throws std::invalid_argument if the call operator of piranha::math::integral_cast_impl throws any exception.
+ */
+template <typename T>
+inline auto integral_cast(const T &x) -> decltype(integral_cast_impl<T>()(x))
+{
+	// NOTE: this needs probably to be generalised if we ever implement a generic safe cast.
+	// Also probably we need to assert this in the type trait.
+	static_assert(std::is_same<decltype(integral_cast_impl<T>()(x)),integer>::value,
+		"Invalid return type for integral_cast.");
+	try {
+		return integral_cast_impl<T>()(x);
+	} catch (...) {
+		piranha_throw(std::invalid_argument,"integral_cast failure");
+	}
 }
 
-//using integer = mp_integer<>;
+/// Default functor for the implementation of piranha::math::ipow_subs().
+/**
+ * This functor should be specialised via the \p std::enable_if mechanism. Default implementation will not define
+ * the call operator, and will hence result in a compilation error when used.
+ */
+template <typename T, typename = void>
+struct ipow_subs_impl
+{};
+
+/// Specialisation of the piranha::math::ipow_subs() functor for arithmetic types.
+/**
+ * This specialisation is activated when \p T is a C++ arithmetic type.
+ * The result will be the input value unchanged.
+ */
+template <typename T>
+struct ipow_subs_impl<T,typename std::enable_if<std::is_arithmetic<T>::value>::type>
+{
+	/// Call operator.
+	/**
+	 * @param[in] x substitution argument.
+	 *
+	 * @return copy of \p x.
+	 */
+	template <typename U>
+	T operator()(const T &x, const std::string &, const integer &, const U &) const
+	{
+		return x;
+	}
+};
+
+/// Specialisation of the piranha::math::ipow_subs() functor for piranha::mp_integer.
+/**
+ * This specialisation is activated when \p T is piranha::mp_integer.
+ * The result will be the input value unchanged.
+ */
+template <typename T>
+struct ipow_subs_impl<T,typename std::enable_if<detail::is_mp_integer<T>::value>::type>
+{
+	/// Call operator.
+	/**
+	 * @param[in] n substitution argument.
+	 *
+	 * @return copy of \p n.
+	 */
+	template <typename U>
+	T operator()(const T &n, const std::string &, const integer &, const U &) const
+	{
+		return n;
+	}
+};
+
+/// Substitution of integral power.
+/**
+ * Substitute the integral power of a symbolic variable with a generic object.
+ * The actual implementation of this function is in the piranha::math::ipow_subs_impl functor.
+ *
+ * @param[in] x quantity that will be subject to substitution.
+ * @param[in] name name of the symbolic variable that will be substituted.
+ * @param[in] n power of \p name that will be substituted.
+ * @param[in] y object that will substitute the variable.
+ *
+ * @return \p x after substitution  of \p name to the power of \p n with \p y.
+ *
+ * @throws unspecified any exception thrown by the call operator of piranha::math::subs_impl.
+ */
+template <typename T, typename U>
+inline auto ipow_subs(const T &x, const std::string &name, const integer &n, const U &y) -> decltype(ipow_subs_impl<T>()(x,name,n,y))
+{
+	return ipow_subs_impl<T>()(x,name,n,y);
+}
+
+}
+
+/// Type trait to detect piranha::math::integral_cast().
+/**
+ * The type trait will be \p true if piranha::math::integral_cast() can be used on instances of type \p T,
+ * \p false otherwise.
+ */
+template <typename T>
+class has_integral_cast: detail::sfinae_types
+{
+		template <typename T1>
+		static auto test(const T1 &x) -> decltype(math::integral_cast(x),void(),yes());
+		static no test(...);
+	public:
+		/// Value of the type trait.
+		static const bool value = std::is_same<decltype(test(std::declval<T>())),yes>::value;
+};
+
+template <typename T>
+const bool has_integral_cast<T>::value;
+
+/// Type trait to detect the presence of the piranha::math::ipow_subs function.
+/**
+ * The type trait will be \p true if piranha::math::ipow_subs can be successfully called on instances
+ * of type \p T, with an instance of type \p U as substitution argument.
+ */
+template <typename T, typename U = T>
+class has_ipow_subs: detail::sfinae_types
+{
+		typedef typename std::decay<T>::type Td;
+		typedef typename std::decay<U>::type Ud;
+		template <typename T1, typename U1>
+		static auto test(const T1 &t, const U1 &u) -> decltype(math::ipow_subs(t,std::declval<std::string const &>(),
+			std::declval<integer const &>(),u),void(),yes());
+		static no test(...);
+	public:
+		/// Value of the type trait.
+		static const bool value = std::is_same<decltype(test(std::declval<Td>(),std::declval<Ud>())),yes>::value;
+};
+
+template <typename T, typename U>
+const bool has_ipow_subs<T,U>::value;
 
 inline namespace literals
 {
@@ -3336,9 +3732,9 @@ inline namespace literals
  * @throws unspecified any exception thrown by the constructor of
  * piranha::mp_integer from string.
  */
-inline mp_integer<> operator "" _z(const char *s)
+inline integer operator "" _z(const char *s)
 {
-	return mp_integer<>(s);
+	return integer(s);
 }
 
 }

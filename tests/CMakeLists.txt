@@ -28,22 +28,17 @@ ADD_PIRANHA_TESTCASE(echelon_size)
 ADD_PIRANHA_TESTCASE(environment)
 ADD_PIRANHA_TESTCASE(exceptions)
 ADD_PIRANHA_TESTCASE(hash_set)
-ADD_PIRANHA_TESTCASE(integer)
 ADD_PIRANHA_TESTCASE(kronecker_array)
 ADD_PIRANHA_TESTCASE(kronecker_monomial)
 # The Intel compiler bombs out on some tests. Need to investigate more.
-# NOTE: some of these seem to be limited to ICEs on integer.hpp,
-# maybe the switch to mp_integer will make them go away. Others seem
-# to involve the decltype() stuff in power_series. Maybe changing the style
-# of those will fix it.
+# NOTE: some of these seem to involve the decltype() stuff in power_series.
+# Maybe changing the style of those will fix it.
 if(NOT CMAKE_COMPILER_IS_INTELXX)
 	ADD_PIRANHA_TESTCASE(kronecker_polynomial)
-	ADD_PIRANHA_TESTCASE(math)
 endif()
+ADD_PIRANHA_TESTCASE(math)
 ADD_PIRANHA_TESTCASE(memory)
-if(NOT CMAKE_COMPILER_IS_INTELXX)
-	ADD_PIRANHA_TESTCASE(monomial)
-endif()
+ADD_PIRANHA_TESTCASE(monomial)
 ADD_PIRANHA_TESTCASE(mp_integer_01)
 ADD_PIRANHA_TESTCASE(mp_integer_02)
 ADD_PIRANHA_TESTCASE(mp_rational)
@@ -60,16 +55,16 @@ if(NOT CMAKE_COMPILER_IS_INTELXX)
 endif()
 ADD_PIRANHA_TESTCASE(print_coefficient)
 ADD_PIRANHA_TESTCASE(print_tex_coefficient)
-IF(ENABLE_QUADMATH)
+if(ENABLE_QUADMATH)
 	# Need to give it a funky name otherwise CMake gets confused
 	# with libquadmath when it is linked in directly as "quadmath".
 	ADD_PIRANHA_TESTCASE(quadmath_)
-ENDIF()
+endif()
+ADD_PIRANHA_TESTCASE(real)
 if(NOT CMAKE_COMPILER_IS_INTELXX)
-	ADD_PIRANHA_TESTCASE(rational)
-	ADD_PIRANHA_TESTCASE(real)
 	ADD_PIRANHA_TESTCASE(real_trigonometric_kronecker_monomial)
 endif()
+
 ADD_PIRANHA_TESTCASE(runtime_info)
 if(NOT CMAKE_COMPILER_IS_INTELXX)
 	ADD_PIRANHA_TESTCASE(series)

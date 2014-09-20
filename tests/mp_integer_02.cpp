@@ -1042,9 +1042,10 @@ struct int_pow_tester
 			typedef mp_integer<U::value> int_type;
 			using int_cast_t = typename std::conditional<std::is_signed<T>::value,long long,unsigned long long>::type;
 			BOOST_CHECK((is_exponentiable<int_type,T>::value));
-			BOOST_CHECK((!is_exponentiable<int_type,float>::value));
-			BOOST_CHECK((!is_exponentiable<int_type,double>::value));
-			BOOST_CHECK((!is_exponentiable<int_type,long double>::value));
+			BOOST_CHECK((is_exponentiable<int_type,float>::value));
+			BOOST_CHECK((is_exponentiable<float,int_type>::value));
+			BOOST_CHECK((is_exponentiable<double,int_type>::value));
+			BOOST_CHECK((is_exponentiable<long double,int_type>::value));
 			int_type n;
 			BOOST_CHECK((std::is_same<int_type,decltype(math::pow(n,T(0)))>::value));
 			BOOST_CHECK_EQUAL(n.pow(T(0)),1);
@@ -1094,6 +1095,39 @@ struct int_pow_tester
 				BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(retval),mpz_lexcast(m_base));
 				BOOST_CHECK_EQUAL(math::pow(int_type(base_int),exp_int),retval);
 			}
+			// Test here the various math::pow() overloads as well.
+			// Integer--integer.
+			BOOST_CHECK((is_exponentiable<int_type,int_type>::value));
+			BOOST_CHECK((std::is_same<int_type,decltype(math::pow(int_type(1),int_type(1)))>::value));
+			BOOST_CHECK_EQUAL(math::pow(int_type(2),int_type(3)),8);
+			// Integer -- integral.
+			BOOST_CHECK((is_exponentiable<int_type,int>::value));
+			BOOST_CHECK((is_exponentiable<int_type,char>::value));
+			BOOST_CHECK((is_exponentiable<int_type,unsigned long>::value));
+			BOOST_CHECK((std::is_same<int_type,decltype(math::pow(int_type(1),1))>::value));
+			BOOST_CHECK((std::is_same<int_type,decltype(math::pow(int_type(1),1ul))>::value));
+			BOOST_CHECK((std::is_same<int_type,decltype(math::pow(int_type(1),(signed char)1))>::value));
+			BOOST_CHECK_EQUAL(math::pow(int_type(2),3),8);
+			// Integer -- floating-point.
+			BOOST_CHECK((is_exponentiable<int_type,double>::value));
+			BOOST_CHECK((std::is_same<double,decltype(math::pow(int_type(1),1.))>::value));
+			BOOST_CHECK_EQUAL(math::pow(int_type(2),3.),math::pow(2.,3.));
+			BOOST_CHECK_EQUAL(math::pow(int_type(2),1./3.),math::pow(2.,1./3.));
+			// Integral -- integer.
+			BOOST_CHECK((is_exponentiable<int,int_type>::value));
+			BOOST_CHECK((is_exponentiable<short,int_type>::value));
+			BOOST_CHECK((std::is_same<int_type,decltype(math::pow(1,int_type(1)))>::value));
+			BOOST_CHECK((std::is_same<int_type,decltype(math::pow(short(1),int_type(1)))>::value));
+			BOOST_CHECK_EQUAL(math::pow(2,int_type(3)),8.);
+			// Floating-point -- integer.
+			BOOST_CHECK((is_exponentiable<float,int_type>::value));
+			BOOST_CHECK((is_exponentiable<double,int_type>::value));
+			BOOST_CHECK((std::is_same<float,decltype(math::pow(1.f,int_type(1)))>::value));
+			BOOST_CHECK((std::is_same<double,decltype(math::pow(1.,int_type(1)))>::value));
+			BOOST_CHECK_EQUAL(math::pow(2.f,int_type(3)),math::pow(2.f,3.f));
+			BOOST_CHECK_EQUAL(math::pow(2.,int_type(3)),math::pow(2.,3.));
+			BOOST_CHECK_EQUAL(math::pow(2.f/5.f,int_type(3)),math::pow(2.f/5.f,3.f));
+			BOOST_CHECK_EQUAL(math::pow(2./7.,int_type(3)),math::pow(2./7.,3.));
 		}
 	};
 	template <typename T>
@@ -1110,9 +1144,9 @@ struct mp_integer_pow_tester
 	{
 		typedef mp_integer<T::value> int_type;
 		BOOST_CHECK((is_exponentiable<int_type,int_type>::value));
-		BOOST_CHECK((!is_exponentiable<int_type,float>::value));
-		BOOST_CHECK((!is_exponentiable<int_type,double>::value));
-		BOOST_CHECK((!is_exponentiable<int_type,long double>::value));
+		BOOST_CHECK((is_exponentiable<float,int_type>::value));
+		BOOST_CHECK((is_exponentiable<double,int_type>::value));
+		BOOST_CHECK((is_exponentiable<long double,int_type>::value));
 		int_type n;
 		BOOST_CHECK((std::is_same<int_type,decltype(math::pow(n,n))>::value));
 		BOOST_CHECK_EQUAL(n.pow(int_type(0)),1);
@@ -1159,6 +1193,16 @@ BOOST_AUTO_TEST_CASE(mp_integer_pow_test)
 {
 	boost::mpl::for_each<size_types>(int_pow_tester());
 	boost::mpl::for_each<size_types>(mp_integer_pow_tester());
+	// Integral--integral pow.
+	BOOST_CHECK_EQUAL(math::pow(4,2),16);
+	BOOST_CHECK_EQUAL(math::pow(-3ll,(unsigned short)3),-27);
+	BOOST_CHECK((std::is_same<integer,decltype(math::pow(-3ll,(unsigned short)3))>::value));
+	BOOST_CHECK((is_exponentiable<int,int>::value));
+	BOOST_CHECK((is_exponentiable<int,char>::value));
+	BOOST_CHECK((is_exponentiable<unsigned,long long>::value));
+	BOOST_CHECK((!is_exponentiable<mp_integer<16>,mp_integer<32>>::value));
+	BOOST_CHECK((!is_exponentiable<mp_integer<32>,mp_integer<16>>::value));
+	BOOST_CHECK((!is_exponentiable<integer,std::string>::value));
 }
 
 struct abs_tester
@@ -2205,6 +2249,7 @@ struct factorial_tester
 			::mpz_set_si(&m.m_mpz,static_cast<long>(tmp));
 			::mpz_fac_ui(&m.m_mpz,static_cast<unsigned long>(tmp));
 			BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(n.factorial()),mpz_lexcast(m));
+			BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(math::factorial(n)),mpz_lexcast(m));
 		}
 	}
 };
@@ -2234,6 +2279,16 @@ struct binomial_tester
 		BOOST_CHECK(n.binomial(3) == 10);
 		n = -5;
 		BOOST_CHECK(n.binomial(int_type(4)) == 70);
+		BOOST_CHECK((has_binomial<int_type,int>::value));
+		BOOST_CHECK((has_binomial<int,int_type>::value));
+		BOOST_CHECK((std::is_same<int_type,decltype(math::binomial(int_type{},0))>::value));
+		BOOST_CHECK((std::is_same<decltype(math::binomial(int_type{},0)),int_type>::value));
+		BOOST_CHECK((has_binomial<int_type,double>::value));
+		BOOST_CHECK((has_binomial<double,int_type>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::binomial(int_type{},0.))>::value));
+		BOOST_CHECK((std::is_same<decltype(math::binomial(int_type{},0.)),double>::value));
+		BOOST_CHECK((has_binomial<int_type,int_type>::value));
+		BOOST_CHECK((std::is_same<int_type,decltype(math::binomial(int_type{},int_type{}))>::value));
 		// Random tests.
 		std::uniform_int_distribution<int> ud(-1000,1000);
 		std::uniform_int_distribution<int> promote_dist(0,1);
@@ -2245,12 +2300,23 @@ struct binomial_tester
 				n.promote();
 			}
 			if (tmp2 < 0) {
-				BOOST_CHECK_THROW(n.binomial(tmp2),std::invalid_argument);
+				// NOTE: we cannot check this case with GMP, defer to some tests below.
+				BOOST_CHECK_NO_THROW(n.binomial(tmp2));
 				continue;
 			}
 			::mpz_set_si(&m.m_mpz,static_cast<long>(tmp1));
 			::mpz_bin_ui(&m.m_mpz,&m.m_mpz,static_cast<unsigned long>(tmp2));
 			BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(n.binomial(tmp2)),mpz_lexcast(m));
+			// int -- integral.
+			BOOST_CHECK_EQUAL(math::binomial(n,tmp2),n.binomial(tmp2));
+			// integral -- int.
+			BOOST_CHECK_EQUAL(math::binomial(tmp2,n),int_type(tmp2).binomial(n));
+			// integral -- integral.
+			BOOST_CHECK_EQUAL(math::binomial(tmp2,tmp1),integer(tmp2).binomial(tmp1));
+			// int -- double.
+			BOOST_CHECK_EQUAL(math::binomial(n,static_cast<double>(tmp2)),math::binomial(double(n),static_cast<double>(tmp2)));
+			// double -- int.
+			BOOST_CHECK_EQUAL(math::binomial(static_cast<double>(tmp2),n),math::binomial(static_cast<double>(tmp2),double(n)));
 			BOOST_CHECK_EQUAL(n.binomial(tmp2),n.binomial(int_type(tmp2)));
 			BOOST_CHECK_EQUAL(n.binomial(long(tmp2)),n.binomial(int_type(tmp2)));
 			BOOST_CHECK_EQUAL(n.binomial((long long)(tmp2)),n.binomial(int_type(tmp2)));
@@ -2258,6 +2324,14 @@ struct binomial_tester
 			BOOST_CHECK_EQUAL(n.binomial((unsigned long long)(tmp2)),n.binomial(int_type(tmp2)));
 		}
 		BOOST_CHECK_THROW(n.binomial(std::numeric_limits<unsigned long>::max() + int_type(1)),std::invalid_argument);
+		// Negative k.
+		BOOST_CHECK_EQUAL(int_type{-3}.binomial(-4),-3);
+		BOOST_CHECK_EQUAL(int_type{-3}.binomial(-10),-36);
+		BOOST_CHECK_EQUAL(int_type{-3}.binomial(-1),0);
+		BOOST_CHECK_EQUAL(int_type{3}.binomial(-1),0);
+		BOOST_CHECK_EQUAL(int_type{10}.binomial(-1),0);
+		BOOST_CHECK_EQUAL(int_type{-3}.binomial(-3),1);
+		BOOST_CHECK_EQUAL(int_type{-1}.binomial(-1),1);
 	}
 };
 
@@ -2265,7 +2339,7 @@ BOOST_AUTO_TEST_CASE(mp_integer_binomial_test)
 {
 	boost::mpl::for_each<size_types>(binomial_tester());
 	// Check the ints.
-	using int_type = mp_integer<>;
+	using int_type = integer;
 	BOOST_CHECK((has_binomial<int,int>::value));
 	BOOST_CHECK_EQUAL(math::binomial(4,2),math::binomial(int_type(4),2));
 	BOOST_CHECK((has_binomial<char,unsigned>::value));
@@ -2274,6 +2348,9 @@ BOOST_AUTO_TEST_CASE(mp_integer_binomial_test)
 	BOOST_CHECK_EQUAL(math::binomial(7ll,4),math::binomial(int_type(7),4));
 	BOOST_CHECK((std::is_same<decltype(math::binomial(7ll,4)),int_type>::value));
 	BOOST_CHECK_EQUAL(math::binomial(-7ll,4u),math::binomial(int_type(-7),4));
+	// Different bits sizes.
+	BOOST_CHECK((!has_binomial<mp_integer<16>,mp_integer<32>>::value));
+	BOOST_CHECK((!has_binomial<mp_integer<32>,mp_integer<16>>::value));
 }
 
 struct sin_cos_tester
@@ -2282,14 +2359,16 @@ struct sin_cos_tester
 	void operator()(const T &)
 	{
 		typedef mp_integer<T::value> int_type;
+		BOOST_CHECK_EQUAL(math::sin(int_type()),0.);
+		BOOST_CHECK_EQUAL(math::sin(int_type(12)),math::sin(12.));
+		BOOST_CHECK_EQUAL(math::sin(int_type(-14)),-math::sin(14.));
+		BOOST_CHECK_EQUAL(math::cos(int_type()),1.);
+		BOOST_CHECK_EQUAL(math::cos(int_type(12)),math::cos(12.));
+		BOOST_CHECK_EQUAL(math::cos(int_type(-14)),math::cos(14.));
 		BOOST_CHECK(has_sine<int_type>::value);
 		BOOST_CHECK(has_cosine<int_type>::value);
-		int_type n;
-		BOOST_CHECK_EQUAL(math::sin(n),0);
-		BOOST_CHECK_EQUAL(math::cos(n),1);
-		n = 1;
-		BOOST_CHECK_THROW(math::sin(n),std::invalid_argument);
-		BOOST_CHECK_THROW(math::cos(n),std::invalid_argument);
+		BOOST_CHECK((std::is_same<double,decltype(math::cos(int_type()))>::value));
+		BOOST_CHECK((std::is_same<double,decltype(math::sin(int_type()))>::value));
 	}
 };
 
@@ -2385,7 +2464,7 @@ BOOST_AUTO_TEST_CASE(mp_integer_integrable_test)
 BOOST_AUTO_TEST_CASE(mp_integer_literal_test)
 {
 	auto n0 = 12345_z;
-	BOOST_CHECK((std::is_same<mp_integer<>,decltype(n0)>::value));
+	BOOST_CHECK((std::is_same<integer,decltype(n0)>::value));
 	BOOST_CHECK_EQUAL(n0,12345);
 	n0 = -456_z;
 	BOOST_CHECK_EQUAL(n0,-456l);
@@ -2437,4 +2516,83 @@ struct mpz_view_tester
 BOOST_AUTO_TEST_CASE(mp_integer_mpz_view_test)
 {
 	boost::mpl::for_each<size_types>(mpz_view_tester());
+}
+
+BOOST_AUTO_TEST_CASE(mp_integer_integral_cast_test)
+{
+	BOOST_CHECK(!has_integral_cast<std::string>::value);
+	if (std::numeric_limits<float>::is_iec559 && std::numeric_limits<float>::radix == 2 &&
+		std::numeric_limits<float>::has_infinity && std::numeric_limits<float>::has_quiet_NaN)
+	{
+		BOOST_CHECK_EQUAL(math::integral_cast(2.f),2);
+		BOOST_CHECK_EQUAL(math::integral_cast(-2.f),-2);
+		BOOST_CHECK_THROW(math::integral_cast(2.5f),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(-2.5f),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(std::numeric_limits<float>::infinity()),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(-std::numeric_limits<float>::infinity()),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(std::numeric_limits<float>::quiet_NaN()),std::invalid_argument);
+	}
+	if (std::numeric_limits<double>::is_iec559 && std::numeric_limits<double>::radix == 2 &&
+		std::numeric_limits<double>::has_infinity && std::numeric_limits<double>::has_quiet_NaN)
+	{
+		BOOST_CHECK_EQUAL(math::integral_cast(2.),2);
+		BOOST_CHECK_EQUAL(math::integral_cast(-2.),-2);
+		BOOST_CHECK_THROW(math::integral_cast(2.5),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(-2.5),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(std::numeric_limits<double>::infinity()),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(-std::numeric_limits<double>::infinity()),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(std::numeric_limits<double>::quiet_NaN()),std::invalid_argument);
+	}
+	if (std::numeric_limits<long double>::is_iec559 && std::numeric_limits<long double>::radix == 2 &&
+		std::numeric_limits<long double>::has_infinity && std::numeric_limits<long double>::has_quiet_NaN)
+	{
+		BOOST_CHECK_EQUAL(math::integral_cast(2.l),2);
+		BOOST_CHECK_EQUAL(math::integral_cast(-2.l),-2);
+		BOOST_CHECK_THROW(math::integral_cast(2.5l),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(-2.5l),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(std::numeric_limits<long double>::infinity()),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(-std::numeric_limits<long double>::infinity()),std::invalid_argument);
+		BOOST_CHECK_THROW(math::integral_cast(std::numeric_limits<long double>::quiet_NaN()),std::invalid_argument);
+	}
+	BOOST_CHECK_EQUAL(math::integral_cast(-2ll),-2);
+	BOOST_CHECK_EQUAL(math::integral_cast(2ull),2);
+	BOOST_CHECK_EQUAL(math::integral_cast(char(2)),2);
+	BOOST_CHECK_EQUAL(math::integral_cast(integer(-23)),-23);
+	BOOST_CHECK(has_integral_cast<float>::value);
+	BOOST_CHECK(has_integral_cast<double>::value);
+	BOOST_CHECK(has_integral_cast<long double>::value);
+	BOOST_CHECK(has_integral_cast<int>::value);
+	BOOST_CHECK(has_integral_cast<long long>::value);
+	BOOST_CHECK(has_integral_cast<unsigned long long>::value);
+	BOOST_CHECK(!has_integral_cast<void *>::value);
+	BOOST_CHECK(!has_integral_cast<std::vector<int>>::value);
+	BOOST_CHECK(!has_integral_cast<std::vector<int> &>::value);
+	BOOST_CHECK(!has_integral_cast<std::vector<int> &&>::value);
+	BOOST_CHECK(!has_integral_cast<const std::vector<int>>::value);
+}
+
+struct ipow_subs_tester
+{
+	template <typename T>
+	void operator()(const T &)
+	{
+		typedef mp_integer<T::value> int_type;
+		BOOST_CHECK_EQUAL(math::ipow_subs(int_type(-42),"a",integer(4),5),int_type(-42));
+		BOOST_CHECK_EQUAL(math::ipow_subs(int_type(42),"a",integer(4),5),int_type(42));
+		BOOST_CHECK(has_ipow_subs<int_type>::value);
+		BOOST_CHECK((has_ipow_subs<int_type,int>::value));
+		BOOST_CHECK((has_ipow_subs<int_type,long>::value));
+		BOOST_CHECK((has_ipow_subs<int_type,double>::value));
+		BOOST_CHECK_EQUAL(math::ipow_subs(3,"a",integer(4),5),3);
+		BOOST_CHECK_EQUAL(math::ipow_subs(3.,"a",integer(4),5),3.);
+		BOOST_CHECK_EQUAL(math::ipow_subs(3.f,"a",integer(4),5),3.f);
+		BOOST_CHECK_EQUAL(math::ipow_subs(3.l,"a",integer(4),5),3.l);
+		BOOST_CHECK_EQUAL(math::ipow_subs(char(3),"a",integer(4),5),char(3));
+		BOOST_CHECK_EQUAL(math::ipow_subs(3ull,"a",integer(4),5),3ull);
+	}
+};
+
+BOOST_AUTO_TEST_CASE(mp_integer_ipow_subs_test)
+{
+	boost::mpl::for_each<size_types>(ipow_subs_tester());
 }

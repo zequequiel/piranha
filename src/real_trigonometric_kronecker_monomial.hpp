@@ -41,9 +41,9 @@
 #include "detail/degree_commons.hpp"
 #include "detail/prepare_for_print.hpp"
 #include "exceptions.hpp"
-#include "integer.hpp"
-#include "math.hpp"
 #include "kronecker_array.hpp"
+#include "math.hpp"
+#include "mp_integer.hpp"
 #include "static_vector.hpp"
 #include "symbol_set.hpp"
 #include "symbol.hpp"
@@ -823,6 +823,10 @@ class real_trigonometric_kronecker_monomial
 		}
 		/// Evaluation.
 		/**
+		 * \note
+		 * This template method is activated only if \p U supports the mathematical operations needed to compute
+		 * the return type.
+		 *
 		 * The return value will be built by applying piranha::math::cos() or piranha::math:sin()
 		 * to the linear combination of the values in \p dict with the multipliers. If a symbol in \p args is not found
 		 * in \p dict, an error will be raised. If the size of the monomial is zero, 1 will be returned

@@ -37,9 +37,9 @@
 
 #include "../src/environment.hpp"
 #include "../src/exceptions.hpp"
-#include "../src/integer.hpp"
 #include "../src/math.hpp"
-#include "../src/rational.hpp"
+#include "../src/mp_integer.hpp"
+#include "../src/mp_rational.hpp"
 #include "../src/real.hpp"
 #include "../src/symbol_set.hpp"
 #include "../src/symbol.hpp"
@@ -647,8 +647,8 @@ struct evaluate_tester
 BOOST_AUTO_TEST_CASE(monomial_evaluate_test)
 {
 	boost::mpl::for_each<expo_types>(evaluate_tester());
-	BOOST_CHECK((!key_is_evaluable<monomial<rational>,double>::value));
-	BOOST_CHECK((!key_is_evaluable<monomial<rational>,real>::value));
+	BOOST_CHECK((key_is_evaluable<monomial<rational>,double>::value));
+	BOOST_CHECK((key_is_evaluable<monomial<rational>,real>::value));
 	BOOST_CHECK((!key_is_evaluable<monomial<rational>,std::string>::value));
 	BOOST_CHECK((!key_is_evaluable<monomial<rational>,void *>::value));
 }
