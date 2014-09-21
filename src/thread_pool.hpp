@@ -160,7 +160,7 @@ class task_queue
 		std::unique_ptr<std::thread>		m_thread;
 };
 
-static inline std::vector<std::unique_ptr<task_queue>> get_initial_thread_queues()
+inline std::vector<std::unique_ptr<task_queue>> get_initial_thread_queues()
 {
 	std::vector<std::unique_ptr<task_queue>> retval;
 	const unsigned candidate = runtime_info::get_hardware_concurrency(), hc = (candidate > 0u) ? candidate : 1u;
@@ -411,7 +411,7 @@ class future_list
 		/**
 		 * This method will call <tt>wait()</tt> on all the valid futures stored within the object.
 		 */
-		void wait_all() noexcept
+		void wait_all()
 		{
 			for (auto &f: m_list) {
 				if (f.valid()) {

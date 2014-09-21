@@ -177,6 +177,9 @@ class mp_rational
 				if (abs_x == Float(0)) {
 					// m_den is 1 already.
 					m_num = i_part;
+					if (x < Float(0)) {
+						m_num.negate();
+					}
 					return;
 				}
 				exp = std::ilogb(abs_x);
@@ -204,7 +207,7 @@ class mp_rational
 			}
 			math::multiply_accumulate(m_num,i_part,m_den);
 			canonicalise();
-			if (std::signbit(x)) {
+			if (x < Float(0)) {
 				m_num.negate();
 			}
 		}
@@ -819,12 +822,12 @@ class mp_rational
 			return is;
 		}
 		/// Get const reference to the numerator.
-		const int_type &num() const noexcept
+		const int_type &num() const
 		{
 			return m_num;
 		}
 		/// Get const reference to the denominator.
-		const int_type &den() const noexcept
+		const int_type &den() const
 		{
 			return m_den;
 		}
@@ -856,7 +859,7 @@ class mp_rational
 		 * 
 		 * @return \p true if \p this is in canonical form, \p false otherwise.
 		 */
-		bool is_canonical() const noexcept
+		bool is_canonical() const
 		{
 			// NOTE: here the GCD only involves operations on mp_integers
 			// and thus it never throws. The construction from 1 in the comparisons will
@@ -873,7 +876,7 @@ class mp_rational
 		 * 
 		 * @see piranha::mp_rational::is_canonical().
 		 */
-		void canonicalise() noexcept
+		void canonicalise()
 		{
 			// If the top is null, den must be one.
 			if (math::is_zero(m_num)) {
@@ -921,7 +924,7 @@ class mp_rational
 		/**
 		 * @return mutable reference to the numerator.
 		 */
-		int_type &_num() noexcept
+		int_type &_num()
 		{
 			return m_num;
 		}
@@ -1042,7 +1045,7 @@ class mp_rational
 			return mp_rational::binary_plus(x,y);
 		}
 		/// Negate in-place.
-		void negate() noexcept
+		void negate()
 		{
 			m_num.negate();
 		}
@@ -1510,7 +1513,7 @@ class mp_rational
 		 *
 		 * @return a hash value for this.
 		 */
-		std::size_t hash() const noexcept
+		std::size_t hash() const
 		{
 			std::size_t retval = m_num.hash();
 			boost::hash_combine(retval,m_den.hash());
@@ -1649,7 +1652,7 @@ struct is_zero_impl<T,typename std::enable_if<detail::is_mp_rational<T>::value>:
 	 * 
 	 * @return \p true if \p q is zero, \p false otherwise.
 	 */
-	bool operator()(const T &q) const noexcept
+	bool operator()(const T &q) const
 	{
 		return is_zero(q.num());
 	}
@@ -1769,18 +1772,18 @@ struct sin_impl<T,typename std::enable_if<detail::is_mp_rational<T>::value>::typ
 {
 	/// Call operator.
 	/**
-	 * The argument will be converted to \p double and piranha::math::sin()
-	 * will then be used.
-	 *
 	 * @param[in] q argument.
 	 *
 	 * @return sine of \p q.
 	 *
-	 * @throws unspecified any exception thrown by converting piranha::mp_rational to \p double.
+	 * @throws std::invalid_argument if the argument is not zero.
 	 */
-	double operator()(const T &q) const
+	T operator()(const T &q) const
 	{
-		return math::sin(static_cast<double>(q));
+		if (is_zero(q)) {
+			return T(0);
+		}
+		piranha_throw(std::invalid_argument,"cannot compute the sine of a non-zero rational");
 	}
 };
 
@@ -1790,18 +1793,18 @@ struct cos_impl<T,typename std::enable_if<detail::is_mp_rational<T>::value>::typ
 {
 	/// Call operator.
 	/**
-	 * The argument will be converted to \p double and piranha::math::cos()
-	 * will then be used.
-	 *
 	 * @param[in] q argument.
 	 *
 	 * @return cosine of \p q.
 	 *
-	 * @throws unspecified any exception thrown by converting piranha::mp_rational to \p double.
+	 * @throws std::invalid_argument if the argument is not zero.
 	 */
-	double operator()(const T &q) const
+	T operator()(const T &q) const
 	{
-		return math::cos(static_cast<double>(q));
+		if (is_zero(q)) {
+			return T(1);
+		}
+		piranha_throw(std::invalid_argument,"cannot compute the cosine of a non-zero rational");
 	}
 };
 

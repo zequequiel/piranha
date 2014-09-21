@@ -130,7 +130,9 @@ class poisson_series:
 					for (auto it = lc.begin(); it != lc.end(); ++it) {
 						retval.m_symbol_set.add(it->first);
 						// NOTE: this should probably be a safe_cast, if we ever implement it.
-						// The value type here could be anything, and not guaranteed to be castable.
+						// The value type here could be anything, and not guaranteed to be castable,
+						// even if in the current implementation this is guaranteed to be a signed
+						// int of some kind.
 						v.push_back(static_cast<value_type>(it->second));
 					}
 					// Build term, fix signs and flavour and move-insert it.
@@ -169,6 +171,8 @@ class poisson_series:
 		template <bool IsCos, typename T, typename std::enable_if<!cf_has_sin_cos<T>::value,int>::type = 0>
 		poisson_series sin_cos_cf_impl() const
 		{
+			// TODO: this will need to be reworked eventually when we fix subs(), there's no need to arrive here
+			// with a runtime error when we can exclude this from happening via TMP.
 			piranha_throw(std::invalid_argument,"Poisson series is unsuitable for the calculation of sine/cosine");
 		}
 		// Subs typedefs.

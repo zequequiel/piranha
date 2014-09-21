@@ -151,7 +151,7 @@ struct negate_impl
 	}
 	/// Call operator specialised for integral types.
 	template <typename U>
-	U &operator()(U &x, typename std::enable_if<std::is_integral<U>::value>::type * = nullptr) const noexcept
+	U &operator()(U &x, typename std::enable_if<std::is_integral<U>::value>::type * = nullptr) const
 	{
 		// NOTE: here we use the explicit static_cast to cope with integral promotions
 		// (e.g., in case of char).
@@ -296,7 +296,7 @@ struct pow_impl<T,U,typename std::enable_if<
 	 * @return <tt>x**y</tt>.
 	 */
 	template <typename T2, typename U2>
-	auto operator()(const T2 &x, const U2 &y) const noexcept -> decltype(std::pow(x,y))
+	auto operator()(const T2 &x, const U2 &y) const -> decltype(std::pow(x,y))
 	{
 		return std::pow(x,y);
 	}
@@ -353,6 +353,30 @@ struct cos_impl<T,typename std::enable_if<std::is_floating_point<T>::value>::typ
 	}
 };
 
+/// Specialisation of the piranha::math::cos() functor for integral types.
+/**
+ * This specialisation is activated when \p T is an integral type.
+ */
+template <typename T>
+struct cos_impl<T,typename std::enable_if<std::is_integral<T>::value>::type>
+{
+	/// Call operator.
+	/**
+	 * @param[in] x argument.
+	 *
+	 * @return cosine of \p x.
+	 *
+	 * @throws std::invalid_argument if the argument is not zero.
+	 */
+	T operator()(const T &x) const
+	{
+		if (x == T(0)) {
+			return T(1);
+		}
+		piranha_throw(std::invalid_argument,"cannot compute the cosine of a non-zero integral");
+	}
+};
+
 /// Cosine.
 /**
  * Returns the cosine of \p x. The actual implementation of this function is in the piranha::math::cos_impl functor's
@@ -398,6 +422,30 @@ struct sin_impl<T,typename std::enable_if<std::is_floating_point<T>::value>::typ
 	auto operator()(const T &x) const -> decltype(std::sin(x))
 	{
 		return std::sin(x);
+	}
+};
+
+/// Specialisation of the piranha::math::sin() functor for integral types.
+/**
+ * This specialisation is activated when \p T is an integral type.
+ */
+template <typename T>
+struct sin_impl<T,typename std::enable_if<std::is_integral<T>::value>::type>
+{
+	/// Call operator.
+	/**
+	 * @param[in] x argument.
+	 *
+	 * @return sine of \p x.
+	 *
+	 * @throws std::invalid_argument if the argument is not zero.
+	 */
+	T operator()(const T &x) const
+	{
+		if (x == T(0)) {
+			return T(0);
+		}
+		piranha_throw(std::invalid_argument,"cannot compute the sine of a non-zero integral");
 	}
 };
 
@@ -666,7 +714,7 @@ struct abs_impl<T,typename std::enable_if<(std::is_signed<T>::value && std::is_i
 		 * 
 		 * @return absolute value of \p x.
 		 */
-		auto operator()(const T &x) const noexcept -> decltype(impl(x))
+		auto operator()(const T &x) const -> decltype(impl(x))
 		{
 			return impl(x);
 		}
@@ -742,7 +790,7 @@ namespace detail
 {
 
 template <typename T>
-static inline auto is_canonical_impl(const std::vector<T const *> &new_p, const std::vector<T const *> &new_q,
+inline auto is_canonical_impl(const std::vector<T const *> &new_p, const std::vector<T const *> &new_q,
 	const std::vector<std::string> &p_list, const std::vector<std::string> &q_list) -> typename std::enable_if<
 	has_is_zero<decltype(math::pbracket(*new_p[0],*new_p[0],p_list,q_list))>::value &&
 	std::is_constructible<decltype(math::pbracket(*new_q[0],*new_p[0],p_list,q_list)),int>::value &&
@@ -1183,14 +1231,14 @@ namespace detail
 
 // Generic binomial implementation.
 template <typename T>
-static inline bool generic_binomial_check_k(const T &, const T &,
+inline bool generic_binomial_check_k(const T &, const T &,
 	typename std::enable_if<std::is_unsigned<T>::value>::type * = nullptr)
 {
 	return false;
 }
 
 template <typename T>
-static inline bool generic_binomial_check_k(const T &k, const T &zero,
+inline bool generic_binomial_check_k(const T &k, const T &zero,
 	typename std::enable_if<!std::is_unsigned<T>::value>::type * = nullptr)
 {
 	return k < zero;

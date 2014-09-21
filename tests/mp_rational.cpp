@@ -86,7 +86,7 @@ struct mpq_raii
 	mpq_raii(mpq_raii &&) = delete;
 	mpq_raii &operator=(const mpq_raii &) = delete;
 	mpq_raii &operator=(mpq_raii &&) = delete;
-	~mpq_raii() noexcept
+	~mpq_raii()
 	{
 		if (mpq_numref(&m_mpq)->_mp_d != nullptr) {
 			::mpq_clear(&m_mpq);
@@ -225,6 +225,11 @@ struct constructor_tester
 		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q_type{ltmp}),std::string("1/")+boost::lexical_cast<std::string>(int_type(ldradix).pow(2)));
 		ltmp = 0.;
 		BOOST_CHECK_EQUAL(boost::lexical_cast<std::string>(q_type{ltmp}),"0");
+		// This was a bug: we did not fix the sign when the input was a negative integral value.
+		BOOST_CHECK_EQUAL(q_type{-1.},-1);
+		BOOST_CHECK_EQUAL(q_type{-2.},-2);
+		BOOST_CHECK_EQUAL(q_type{1.},1);
+		BOOST_CHECK_EQUAL(q_type{2.},2);
 		// Random testing.
 		std::uniform_real_distribution<double> ddist(0,std::numeric_limits<double>::max());
 		for (int i = 0; i < ntries / 10; ++i) {
@@ -1862,17 +1867,14 @@ struct sin_cos_tester
 	void operator()(const T &)
 	{
 		using q_type = mp_rational<T::value>;
-		const auto radix = std::numeric_limits<double>::radix;
-		BOOST_CHECK_EQUAL(math::sin(q_type()),0.);
-		BOOST_CHECK_EQUAL(math::sin(q_type(1,radix)),math::sin(1./radix));
-		BOOST_CHECK_EQUAL(math::sin(q_type(1,-radix)),-math::sin(1./radix));
-		BOOST_CHECK_EQUAL(math::cos(q_type()),1.);
-		BOOST_CHECK_EQUAL(math::cos(q_type(1,radix)),math::cos(1./radix));
-		BOOST_CHECK_EQUAL(math::cos(q_type(1,-radix)),math::cos(1./radix));
+		BOOST_CHECK_EQUAL(math::sin(q_type()),0);
+		BOOST_CHECK_EQUAL(math::cos(q_type()),1);
+		BOOST_CHECK((std::is_same<q_type,decltype(math::cos(q_type()))>::value));
+		BOOST_CHECK((std::is_same<q_type,decltype(math::sin(q_type()))>::value));
+		BOOST_CHECK_THROW(math::sin(q_type(1)),std::invalid_argument);
+		BOOST_CHECK_THROW(math::cos(q_type(1)),std::invalid_argument);
 		BOOST_CHECK(has_sine<q_type>::value);
 		BOOST_CHECK(has_cosine<q_type>::value);
-		BOOST_CHECK((std::is_same<double,decltype(math::cos(q_type()))>::value));
-		BOOST_CHECK((std::is_same<double,decltype(math::sin(q_type()))>::value));
 	}
 };
 

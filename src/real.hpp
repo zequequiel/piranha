@@ -224,7 +224,7 @@ class real: public detail::real_base<>
 				piranha_assert(sign() != 0);
 				if (std::numeric_limits<T>::has_infinity && sign() > 0) {
 					return std::numeric_limits<T>::infinity();
-				} else if (std::numeric_limits<T>::has_infinity && sign() < 0 && std::signbit(std::numeric_limits<T>::lowest()) != 0) {
+				} else if (std::numeric_limits<T>::has_infinity && sign() < 0) {
 					return std::copysign(std::numeric_limits<T>::infinity(),std::numeric_limits<T>::lowest());
 				} else {
 					piranha_throw(std::overflow_error,"cannot convert infinity to floating-point type");
@@ -872,7 +872,7 @@ class real: public detail::real_base<>
 		 * 
 		 * @param[in] other swap argument.
 		 */
-		void swap(real &other) noexcept
+		void swap(real &other)
 		{
 			if (this == &other) {
 				return;
@@ -2067,6 +2067,27 @@ inline real real::binomial(const real &y) const
 	// Case 7 returns zero -> from inf / (inf * inf) it becomes a / (b * inf) after the transform.
 	// NOTE: put it here so the compiler does not complain about missing return statement in the switch block.
 	return real{0,max_prec};
+}
+
+inline namespace literals
+{
+
+/// Literal for piranha::real.
+/**
+ * The return value will be constructed with default precision.
+ *
+ * @param[in] s literal string.
+ *
+ * @return a piranha::real constructed from \p s.
+ *
+ * @throws unspecified any exception thrown by the constructor of
+ * piranha::real from string.
+ */
+inline real operator "" _r(const char *s)
+{
+	return real(s);
+}
+
 }
 
 }
