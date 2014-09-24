@@ -2092,22 +2092,4 @@ inline real operator "" _r(const char *s)
 
 }
 
-namespace std
-{
-
-/// Specialization of \p std::swap for piranha::real.
-/**
- * @param[in] r1 first argument.
- * @param[in] r2 second argument.
- * 
- * @see piranha::real::swap()
- */
-template <>
-inline void swap(piranha::real &r1, piranha::real &r2) noexcept
-{
-	r1.swap(r2);
-}
-
-}
-
 #endif

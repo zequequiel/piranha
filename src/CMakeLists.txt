@@ -46,6 +46,7 @@ SET(HEADERS_LIST
 	tuning.hpp
 	quadmath.hpp
 	boost_multiprecision.hpp
+	convert_to.hpp
 )
 
 SET(DETAIL_HEADERS_LIST
