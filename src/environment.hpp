@@ -21,6 +21,7 @@
 #ifndef PIRANHA_ENVIRONMENT_HPP
 #define PIRANHA_ENVIRONMENT_HPP
 
+#include <atomic>
 #include <cstdlib>
 #include <iostream>
 #include <mutex>
@@ -40,7 +41,7 @@ struct base_environment
 {
 	static std::mutex	m_mutex;
 	static bool		m_inited;
-	static bool		m_shutdown;
+	static std::atomic_bool	m_shutdown;
 };
 
 template <typename T>
@@ -50,7 +51,7 @@ template <typename T>
 bool base_environment<T>::m_inited = false;
 
 template <typename T>
-bool base_environment<T>::m_shutdown = false;
+std::atomic_bool base_environment<T>::m_shutdown(false);
 
 }
 
@@ -85,6 +86,12 @@ class environment: private detail::base_environment<>
 				std::cout.flush();
 				std::abort();
 			}
+			if (!::mpfr_buildopt_tls_p()) {
+				// NOTE: logging candidate, we probably want to push
+				// this to a warning channel.
+				std::cerr << "The MPFR library was not built thread-safe.\n";
+				std::cerr.flush();
+			}
 			m_inited = true;
 		}
 		/// Deleted copy constructor.
@@ -106,7 +113,7 @@ class environment: private detail::base_environment<>
 		 */
 		static bool shutdown()
 		{
-			return m_shutdown;
+			return m_shutdown.load();
 		}
 	private:
 		static void cleanup_function()
@@ -114,7 +121,7 @@ class environment: private detail::base_environment<>
 			std::cout << "Freeing MPFR caches.\n";
 			::mpfr_free_cache();
 			std::cout << "Setting shutdown flag.\n";
-			environment::m_shutdown = true;
+			environment::m_shutdown.store(true);
 		}
 };
 

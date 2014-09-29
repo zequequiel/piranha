@@ -419,7 +419,8 @@ namespace detail
 //   class <typename T, typename U, typename ... Args> class TT;
 //   will not be detected. See also:
 //   http://stackoverflow.com/questions/18724698/variadic-template-deduction-in-variadic-template-template?noredirect=1#comment39290689_18724698
-//   The workaround of spelling explicitly N arguments works ok.
+//   The workaround of spelling explicitly N arguments works ok for GCC 4.8.3 but apparently not for earlier versions (still compiles,
+//   specialisation is not picked up).
 // - Clang behaves like GCC 4.8 *except* that the workaround won't work. Clang does not recognize the
 //   spelled-out N arguments versions below as specialisations of the general case.
 // - The Intel compiler won't work at all unless the workaround is activated.
@@ -1188,26 +1189,20 @@ const bool is_forward_iterator<T>::value;
 namespace detail
 {
 
-template <typename T, T cur_p = T(1), T cur_n = T(-1), typename = void>
-struct safe_abs_sint_impl
+template <typename T>
+constexpr T safe_abs_sint_impl(T cur_p = T(1), T cur_n = T(-1))
 {
-	static const T value = safe_abs_sint_impl<T,static_cast<T>(cur_p * 2),static_cast<T>(cur_n * 2)>::value;
-};
-
-template <typename T, T cur_p, T cur_n>
-struct safe_abs_sint_impl<T,cur_p,cur_n,typename std::enable_if<
-	(cur_p > std::numeric_limits<T>::max() / T(2) || cur_n < std::numeric_limits<T>::min() / T(2))
-	>::type>
-{
-	static const T value = cur_p;
-};
+	return (cur_p > std::numeric_limits<T>::max() / T(2) || cur_n < std::numeric_limits<T>::min() / T(2)) ?
+		cur_p :
+		safe_abs_sint_impl(static_cast<T>(cur_p * 2),static_cast<T>(cur_n * 2));
+}
 
 // Determine, for the signed integer T, a value n, power of 2, such that it is safe to take -n.
 template <typename T>
 struct safe_abs_sint
 {
 	static_assert(std::is_integral<T>::value && std::is_signed<T>::value,"T must be a signed integral type.");
-	static const T value = safe_abs_sint_impl<T>::value;
+	static const T value = safe_abs_sint_impl<T>();
 };
 
 template <typename T>
