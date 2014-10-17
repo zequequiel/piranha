@@ -39,7 +39,6 @@
 #include <utility>
 
 #include "config.hpp"
-#include "detail/degree_commons.hpp"
 #include "detail/km_commons.hpp"
 #include "detail/prepare_for_print.hpp"
 #include "exceptions.hpp"
@@ -47,6 +46,7 @@
 #include "math.hpp"
 #include "mp_integer.hpp"
 #include "mp_rational.hpp"
+#include "safe_cast.hpp"
 #include "static_vector.hpp"
 #include "symbol_set.hpp"
 #include "symbol.hpp"
@@ -77,10 +77,6 @@ namespace piranha
  * 
  * @author Francesco Biscani (bluescarni@gmail.com)
  * 
- * \todo think about having this (and rtkm) return degrees as integer() to solve possible problems of overflowing in conjunction with
- * use in power_series_term (where we add degrees produced by cf and key). Should we do that, see if the safe_adder thingie can go away for good.
- * Note that this will take care of uniforming the output of, e.g., degree() and partial/integrate (which both return integers). Review the code for degree() use after the
- * change has been made to spot possible problems.
  * \todo consider abstracting the km_commons in a class and use it both here and in rtkm.
  * \todo needs sfinaeing.
  */
@@ -114,6 +110,10 @@ class kronecker_monomial
 		{
 			using type = e_type<U>;
 		};
+		// Enabler for pow.
+		template <typename U>
+		using pow_enabler = typename std::enable_if<has_safe_cast<T,
+			decltype(std::declval<integer &&>() * std::declval<const U &>())>::value,int>::type;
 	public:
 		/// Vector type used for temporary packing/unpacking.
 		typedef static_vector<value_type,max_size> v_type;
@@ -326,65 +326,60 @@ class kronecker_monomial
 		}
 		/// Degree.
 		/**
-		 * @param[in] args reference set of piranha::symbol.
-		 * 
+		 * @param[in] args reference set of symbols.
+		 *
 		 * @return degree of the monomial.
-		 * 
-		 * @throws std::overflow_error if the computation of the degree overflows type \p value_type.
-		 * @throws unspecified any exception thrown by unpack().
+		 *
+		 * @throws unspecified any exception thrown by unpack() or by the in-place addition
+		 * operator of piranha::integer.
 		 */
-		value_type degree(const symbol_set &args) const
+		integer degree(const symbol_set &args) const
 		{
 			const auto tmp = unpack(args);
-			return detail::monomial_degree<value_type>(tmp,detail::km_safe_adder<value_type>,args);
+			// NOTE: this should be guaranteed by the unpack function.
+			piranha_assert(tmp.size() == args.size());
+			integer retval(0);
+			for (const auto &x: tmp) {
+				retval += x;
+			}
+			return retval;
 		}
-		/// Low degree.
-		/**
-		 * Equivalent to the degree.
-		 * 
-		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return low degree of the monomial.
-		 * 
-		 * @throws unspecified any exception thrown by degree().
-		 */
-		value_type ldegree(const symbol_set &args) const
+		/// Low degree (equivalent to the degree).
+		integer ldegree(const symbol_set &args) const
 		{
 			return degree(args);
 		}
 		/// Partial degree.
 		/**
-		 * Partial degree of the monomial: only the symbols with names in \p active_args are considered during the computation
-		 * of the degree. Symbols in \p active_args not appearing in \p args are not considered.
-		 * 
-		 * @param[in] active_args names of the symbols that will be considered in the computation of the partial degree of the monomial.
+		 * Partial degree of the monomial: only the symbols at the positions specified by \p p are considered.
+		 *
+		 * @param[in] p positions of the symbols to be considered in the calculation of the degree.
 		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return the summation of all the exponents of the monomial corresponding to the symbols in
-		 * \p active_args, or <tt>value_type(0)</tt> if no symbols in \p active_args appear in \p args.
-		 * 
-		 * @throws std::overflow_error if the computation of the degree overflows type \p value_type.
-		 * @throws unspecified any exception thrown by unpack().
+		 *
+		 * @return the summation of the exponents of the monomial at the positions specified by \p p.
+		 *
+		 * @throws std::invalid_argument if \p p is not compatible with \p args.
+		 * @throws unspecified any exception thrown by unpack() or by the in-place addition
+		 * operator of piranha::integer.
 		 */
-		value_type degree(const std::set<std::string> &active_args, const symbol_set &args) const
+		integer degree(const symbol_set::positions &p, const symbol_set &args) const
 		{
 			const auto tmp = unpack(args);
-			return detail::monomial_partial_degree<value_type>(tmp,detail::km_safe_adder<value_type>,active_args,args);
+			piranha_assert(tmp.size() == args.size());
+			if (unlikely(p.size() && p.back() >= tmp.size())) {
+				piranha_throw(std::invalid_argument,"invalid positions");
+			}
+			auto cit = tmp.begin();
+			integer retval(0);
+			for (const auto &i: p) {
+				retval += cit[i];
+			}
+			return retval;
 		}
-		/// Partial low degree.
-		/**
-		 * Equivalent to the partial degree.
-		 * 
-		 * @param[in] active_args names of the symbols that will be considered in the computation of the partial low degree of the monomial.
-		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return the partial low degree.
-		 * 
-		 * @throws unspecified any exception thrown by degree().
-		 */
-		value_type ldegree(const std::set<std::string> &active_args, const symbol_set &args) const
+		/// Partial low degree (equivalent to the partial degree).
+		integer ldegree(const symbol_set::positions &p, const symbol_set &args) const
 		{
-			return degree(active_args,args);
+			return degree(p,args);
 		}
 		/// Multiply monomial.
 		/**
@@ -481,11 +476,12 @@ class kronecker_monomial
 		/// Exponentiation.
 		/**
 		 * \note
-		 * This method is enabled only if \p U can be used in piranha::math::integral_cast().
+		 * This method is enabled only if \p U is multipliable by piranha::integer and the result type can be
+		 * safely cast back to \p T.
 		 *
 		 * Will return a monomial corresponding to \p this raised to the <tt>x</tt>-th power. The exponentiation
-		 * is computed via multiplication of the exponents by the output of piranha::math::integral_cast()
-		 * on \p x.
+		 * is computed via the multiplication of the exponents promoted to piranha::integer by \p x. The result will
+		 * be cast back to \p T via piranha::safe_cast().
 		 * 
 		 * @param[in] x exponent.
 		 * @param[in] args reference set of piranha::symbol.
@@ -494,20 +490,16 @@ class kronecker_monomial
 		 * 
 		 * @throws unspecified any exception thrown by:
 		 * - unpack(),
-		 * - piranha::math::integral_cast(),
-		 * - the cast and binary multiplication operators of piranha::integer,
+		 * - piranha::safe_cast(),
+		 * - the constructor and multiplication operator of piranha::integer,
 		 * - piranha::kronecker_array::encode().
 		 */
-		template <typename U, typename = typename std::enable_if<has_integral_cast<U>::value>::type>
+		template <typename U, pow_enabler<U> = 0>
 		kronecker_monomial pow(const U &x, const symbol_set &args) const
 		{
 			auto v = unpack(args);
-			const auto size = args.size();
-			const integer n = math::integral_cast(x);
-			for (typename v_type::size_type i = 0u; i < size; ++i) {
-				// NOTE: here operator* produces an integer, which is safely cast back
-				// to the signed int type.
-				v[i] = static_cast<value_type>(n * v[i]);
+			for (auto &n: v) {
+				n = safe_cast<value_type>(integer(n) * x);
 			}
 			kronecker_monomial retval;
 			retval.m_value = ka::encode(v);

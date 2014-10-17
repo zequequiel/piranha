@@ -41,6 +41,15 @@
 namespace piranha
 {
 
+namespace detail
+{
+
+// Type requirement for Kronecker array.
+template <typename T>
+using ka_type_reqs = std::integral_constant<bool,std::is_integral<T>::value && std::is_signed<T>::value>;
+
+}
+
 /// Kronecker array.
 /**
  * This class offers static methods to encode (and decode) arrays of integral values as instances of \p SignedInteger type,
@@ -51,7 +60,7 @@ namespace piranha
  * 
  * \section type_requirements Type requirements
  * 
- * \p SignedInteger must be a C++ signed integral type with finite bounds.
+ * \p SignedInteger must be a C++ signed integral type.
  * 
  * \section exception_safety Exception safety guarantee
  * 
@@ -70,8 +79,7 @@ class kronecker_array
 		/// Signed integer type used for encoding.
 		typedef SignedInteger int_type;
 	private:
-		static_assert(std::is_integral<int_type>::value && std::is_signed<int_type>::value &&
-			std::numeric_limits<int_type>::is_bounded,"This class can be used only with bounded signed integers.");
+		static_assert(detail::ka_type_reqs<int_type>::value,"This class can be used only with signed integers.");
 		// This is a 4-tuple of int_type built as follows:
 		// 0. vector of absolute values of the upper/lower limit for each component,
 		// 1. h_min,
@@ -284,7 +292,7 @@ class kronecker_array
 		/**
 		 * \note
 		 * This method can be called only if \p Vector is a type with a vector-like interface.
-		 * Specifically, it must have a <tt>size()</tt> method and overloaded const index operator.
+		 * Specifically, it must have a <tt>size()</tt> method and overloaded mutable index operator.
 		 *
 		 * Decode input code \p n into \p retval. If the value type of \p Vector
 		 * is not \p SignedInteger, the components decoded from \p n will be converted to the value type of \p Vector

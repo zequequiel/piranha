@@ -22,28 +22,27 @@
 #define PIRANHA_REAL_TRIGONOMETRIC_KRONECKER_MONOMIAL_HPP
 
 #include <algorithm>
-#include <boost/integer_traits.hpp>
-#include <boost/numeric/conversion/cast.hpp>
 #include <cstddef>
 #include <functional>
 #include <initializer_list>
 #include <iostream>
 #include <iterator>
-#include <set>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "config.hpp"
 #include "detail/km_commons.hpp"
-#include "detail/degree_commons.hpp"
 #include "detail/prepare_for_print.hpp"
 #include "exceptions.hpp"
 #include "kronecker_array.hpp"
 #include "math.hpp"
 #include "mp_integer.hpp"
+#include "safe_cast.hpp"
 #include "static_vector.hpp"
 #include "symbol_set.hpp"
 #include "symbol.hpp"
@@ -71,7 +70,8 @@ namespace piranha
  * as if the multipliers were exponents of a regular monomial (e.g., the total trigonometric degree is the sum of the multipliers).
  * Closely related is the concept of trigonometric order, calculated by adding the absolute values of the multipliers.
  * 
- * This class satisfies the piranha::is_key type trait.
+ * This class satisfies the piranha::is_key, piranha::key_has_t_degree, piranha::key_has_t_ldegree,
+ * piranha::key_has_t_order and piranha::key_has_t_lorder type traits.
  * 
  * \section type_requirements Type requirements
  * 
@@ -111,7 +111,7 @@ class real_trigonometric_kronecker_monomial
 		/// Vector type used for temporary packing/unpacking.
 		typedef static_vector<value_type,max_size> v_type;
 	private:
-		static_assert(max_size <= boost::integer_traits<static_vector<int,1u>::size_type>::const_max,"Invalid max size.");
+		static_assert(max_size <= std::numeric_limits<static_vector<int,1u>::size_type>::max(),"Invalid max size.");
 		// Eval and subs type definition.
 		template <typename U, typename = void>
 		struct eval_type {};
@@ -170,6 +170,13 @@ class real_trigonometric_kronecker_monomial
 			const value_type v[4] = {0,1,0,-1};
 			return v[n % value_type(4)];
 		}
+		// Enabler for ctor from init list.
+		template <typename U>
+		using init_list_enabler = typename std::enable_if<has_safe_cast<value_type,U>::value,int>::type;
+		// Enabler for ctor from iterator.
+		template <typename Iterator>
+		using it_ctor_enabler = typename std::enable_if<is_input_iterator<Iterator>::value &&
+			has_safe_cast<value_type,decltype(*std::declval<const Iterator &>())>::value,int>::type;
 	public:
 		/// Default constructor.
 		/**
@@ -182,8 +189,11 @@ class real_trigonometric_kronecker_monomial
 		real_trigonometric_kronecker_monomial(real_trigonometric_kronecker_monomial &&) = default;
 		/// Constructor from initalizer list.
 		/**
+		 * \note
+		 * This constructor is enabled if \p U is safely convertible to \p T.
+		 *
 		 * The values in the initializer list are intended to represent the multipliers of the monomial:
-		 * they will be converted to type \p T (if \p T and \p U are not the same type),
+		 * they will be safely converted to type \p T (if \p T and \p U are not the same type),
 		 * encoded using piranha::kronecker_array::encode() and the result assigned to the internal integer instance.
 		 * The flavour will be set to \p true.
 		 * 
@@ -191,41 +201,42 @@ class real_trigonometric_kronecker_monomial
 		 * 
 		 * @throws unspecified any exception thrown by:
 		 * - piranha::kronecker_array::encode(),
-		 * - \p boost::numeric_cast (in case \p U is not the same as \p T),
+		 * - piranha::safe_cast(),
 		 * - piranha::static_vector::push_back().
 		 */
-		template <typename U>
+		template <typename U, init_list_enabler<U> = 0>
 		explicit real_trigonometric_kronecker_monomial(std::initializer_list<U> list):m_value(0),m_flavour(true)
 		{
 			v_type tmp;
 			for (const auto &x: list) {
-				tmp.push_back(boost::numeric_cast<value_type>(x));
+				tmp.push_back(safe_cast<value_type>(x));
 			}
 			m_value = ka::encode(tmp);
 		}
 		/// Constructor from range.
 		/**
 		 * \note
-		 * This constructor is enabled if \p Iterator is an input iterator.
+		 * This constructor is enabled if \p Iterator is an input iterator whose \p value_type is safely convertible
+		 * to \p T.
 		 *
 		 * Will build internally a vector of values from the input iterators, encode it and assign the result
 		 * to the internal integer instance. The value type of the iterator is converted to \p T using
-		 * \p boost::numeric_cast. The flavour will be set to \p true.
+		 * piranha::safe_cast(). The flavour will be set to \p true.
 		 * 
 		 * @param[in] start beginning of the range.
 		 * @param[in] end end of the range.
 		 * 
 		 * @throws unspecified any exception thrown by:
 		 * - piranha::kronecker_array::encode(),
-		 * - \p boost::numeric_cast (in case the value type of \p Iterator is not the same as \p T),
+		 * - piranha::safe_cast(),
 		 * - piranha::static_vector::push_back().
 		 */
-		template <typename Iterator, typename = typename std::enable_if<is_input_iterator<Iterator>::value>::type>
+		template <typename Iterator, it_ctor_enabler<Iterator> = 0>
 		explicit real_trigonometric_kronecker_monomial(const Iterator &start, const Iterator &end):m_value(0),m_flavour(true)
 		{
 			typedef typename std::iterator_traits<Iterator>::value_type it_v_type;
 			v_type tmp;
-			std::transform(start,end,std::back_inserter(tmp),[](const it_v_type &v) {return boost::numeric_cast<value_type>(v);});
+			std::transform(start,end,std::back_inserter(tmp),[](const it_v_type &v) {return safe_cast<value_type>(v);});
 			m_value = ka::encode(tmp);
 		}
 		/// Constructor from set of symbols.
@@ -277,6 +288,10 @@ class real_trigonometric_kronecker_monomial
 		~real_trigonometric_kronecker_monomial()
 		{
 			PIRANHA_TT_CHECK(is_key,real_trigonometric_kronecker_monomial);
+			PIRANHA_TT_CHECK(key_has_t_degree,real_trigonometric_kronecker_monomial);
+			PIRANHA_TT_CHECK(key_has_t_ldegree,real_trigonometric_kronecker_monomial);
+			PIRANHA_TT_CHECK(key_has_t_order,real_trigonometric_kronecker_monomial);
+			PIRANHA_TT_CHECK(key_has_t_lorder,real_trigonometric_kronecker_monomial);
 		}
 		/// Defaulted copy assignment operator.
 		real_trigonometric_kronecker_monomial &operator=(const real_trigonometric_kronecker_monomial &) = default;
@@ -340,7 +355,7 @@ class real_trigonometric_kronecker_monomial
 		}
 		/// Compatibility check.
 		/**
-		 * Monomial is considered incompatible if any of these conditions holds:
+		 * A monomial is considered incompatible if any of these conditions holds:
 		 * 
 		 * - the size of \p args is zero and the internal integer is not zero,
 		 * - the size of \p args is equal to or larger than the size of the output of piranha::kronecker_array::get_limits(),
@@ -442,25 +457,22 @@ class real_trigonometric_kronecker_monomial
 		 * 
 		 * @return trigonometric degree of the monomial.
 		 * 
-		 * @throws std::overflow_error if the computation of the degree overflows type \p value_type.
-		 * @throws unspecified any exception thrown by unpack().
+		 * @throws unspecified any exception thrown by unpack() or by the in-place addition operator
+		 * of piranha::integer.
 		 */
-		value_type t_degree(const symbol_set &args) const
+		integer t_degree(const symbol_set &args) const
 		{
 			const auto tmp = unpack(args);
-			return detail::monomial_degree<value_type>(tmp,detail::km_safe_adder<value_type>,args);
+			// NOTE: this should be guaranteed by the unpack function.
+			piranha_assert(tmp.size() == args.size());
+			integer retval(0);
+			for (const auto &x: tmp) {
+				retval += x;
+			}
+			return retval;
 		}
-		/// Low trigonometric degree.
-		/**
-		 * Equivalent to the trigonometric degree.
-		 * 
-		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return low trigonometric degree of the monomial.
-		 * 
-		 * @throws unspecified any exception thrown by t_degree().
-		 */
-		value_type t_ldegree(const symbol_set &args) const
+		/// Low trigonometric degree (equivalent to the trigonometric degree).
+		integer t_ldegree(const symbol_set &args) const
 		{
 			return t_degree(args);
 		}
@@ -475,28 +487,27 @@ class real_trigonometric_kronecker_monomial
 		 * @return the summation of all the multipliers of the monomial corresponding to the symbols in
 		 * \p active_args, or <tt>value_type(0)</tt> if no symbols in \p active_args appear in \p args.
 		 * 
-		 * @throws std::overflow_error if the computation of the degree overflows type \p value_type.
-		 * @throws unspecified any exception thrown by unpack().
+		 * @throws unspecified any exception thrown by unpack() or by the in-place addition operator
+		 * of piranha::integer.
 		 */
-		value_type t_degree(const std::set<std::string> &active_args, const symbol_set &args) const
+		integer t_degree(const symbol_set::positions &p, const symbol_set &args) const
 		{
 			const auto tmp = unpack(args);
-			return detail::monomial_partial_degree<value_type>(tmp,detail::km_safe_adder<value_type>,active_args,args);
+			piranha_assert(tmp.size() == args.size());
+			if (unlikely(p.size() && p.back() >= tmp.size())) {
+				piranha_throw(std::invalid_argument,"invalid positions");
+			}
+			auto cit = tmp.begin();
+			integer retval(0);
+			for (const auto &i: p) {
+				retval += cit[i];
+			}
+			return retval;
 		}
-		/// Partial low trigonometric degree.
-		/**
-		 * Equivalent to the partial trigonometric degree.
-		 * 
-		 * @param[in] active_args names of the symbols that will be considered in the computation of the partial low trigonometric degree of the monomial.
-		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return the partial low trigonometric degree.
-		 * 
-		 * @throws unspecified any exception thrown by t_degree().
-		 */
-		value_type t_ldegree(const std::set<std::string> &active_args, const symbol_set &args) const
+		/// Partial low trigonometric degree (equivalent to the partial trigonometric degree).
+		integer t_ldegree(const symbol_set::positions &p, const symbol_set &args) const
 		{
-			return t_degree(active_args,args);
+			return t_degree(p,args);
 		}
 		/// Trigonometric order.
 		/**
@@ -504,13 +515,20 @@ class real_trigonometric_kronecker_monomial
 		 * 
 		 * @return trigonometric order of the monomial.
 		 * 
-		 * @throws std::overflow_error if the computation of the order overflows type \p value_type.
-		 * @throws unspecified any exception thrown by unpack().
+		 * @throws unspecified any exception thrown by unpack() or by the in-place addition operator
+		 * of piranha::integer.
 		 */
-		value_type t_order(const symbol_set &args) const
+		integer t_order(const symbol_set &args) const
 		{
 			const auto tmp = unpack(args);
-			return detail::monomial_degree<value_type>(tmp,detail::km_safe_abs_adder<value_type>,args);
+			piranha_assert(tmp.size() == args.size());
+			integer retval(0);
+			for (const auto &x: tmp) {
+				// NOTE: here the k codification is symmetric, we can always take the negative
+				// safely.
+				retval += math::abs(x);
+			}
+			return retval;
 		}
 		/// Low trigonometric order.
 		/**
@@ -522,7 +540,7 @@ class real_trigonometric_kronecker_monomial
 		 * 
 		 * @throws unspecified any exception thrown by t_order().
 		 */
-		value_type t_lorder(const symbol_set &args) const
+		integer t_lorder(const symbol_set &args) const
 		{
 			return t_order(args);
 		}
@@ -537,28 +555,27 @@ class real_trigonometric_kronecker_monomial
 		 * @return the summation of the absolute values of all the multipliers of the monomial corresponding to the symbols in
 		 * \p active_args, or <tt>value_type(0)</tt> if no symbols in \p active_args appear in \p args.
 		 * 
-		 * @throws std::overflow_error if the computation of the order overflows type \p value_type.
-		 * @throws unspecified any exception thrown by unpack().
+		 * @throws unspecified any exception thrown by unpack() or by the in-place addition operator
+		 * of piranha::integer.
 		 */
-		value_type t_order(const std::set<std::string> &active_args, const symbol_set &args) const
+		integer t_order(const symbol_set::positions &p, const symbol_set &args) const
 		{
 			const auto tmp = unpack(args);
-			return detail::monomial_partial_degree<value_type>(tmp,detail::km_safe_abs_adder<value_type>,active_args,args);
+			piranha_assert(tmp.size() == args.size());
+			if (unlikely(p.size() && p.back() >= tmp.size())) {
+				piranha_throw(std::invalid_argument,"invalid positions");
+			}
+			auto cit = tmp.begin();
+			integer retval(0);
+			for (const auto &i: p) {
+				retval += math::abs(cit[i]);
+			}
+			return retval;
 		}
-		/// Partial low trigonometric order.
-		/**
-		 * Equivalent to the partial trigonometric order.
-		 * 
-		 * @param[in] active_args names of the symbols that will be considered in the computation of the partial low trigonometric order of the monomial.
-		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return the partial low trigonometric order.
-		 * 
-		 * @throws unspecified any exception thrown by t_order().
-		 */
-		value_type t_lorder(const std::set<std::string> &active_args, const symbol_set &args) const
+		/// Partial low trigonometric order (equivalent to the partial trigonometric order).
+		integer t_lorder(const symbol_set::positions &p, const symbol_set &args) const
 		{
-			return t_order(active_args,args);
+			return t_order(p,args);
 		}
 		/// Multiply monomial.
 		/**

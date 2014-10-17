@@ -22,10 +22,10 @@
 #define PIRANHA_SMALL_VECTOR_HPP
 
 #include <algorithm>
-#include <boost/integer_traits.hpp>
 #include <cstddef>
 #include <initializer_list>
 #include <iterator>
+#include <limits>
 #include <new>
 #include <stdexcept>
 #include <type_traits>
@@ -65,7 +65,6 @@ namespace detail
 // http://stackoverflow.com/questions/12332772/why-arent-container-move-assignment-operators-noexcept
 // NOTE: now we do not use the allocator at all, as we cannot guarantee it has a standard layout. Keep the comments
 // above as an historical reference, might come useful in the future :)
-// NOTE: POD optimizations are possible again.
 template <typename T>
 class dynamic_storage
 {
@@ -78,8 +77,8 @@ class dynamic_storage
 		using const_pointer = value_type const *;
 		// NOTE: this bit of TMP is to avoid checking an always-false condition on reserve() on most platforms, which triggers a compiler
 		// warning on GCC 4.7.
-		static const std::size_t max_alloc_size = boost::integer_traits<std::size_t>::const_max / sizeof(value_type);
-		static const bool need_reserve_check = boost::integer_traits<size_type>::const_max > max_alloc_size;
+		static const std::size_t max_alloc_size = std::numeric_limits<std::size_t>::max() / sizeof(value_type);
+		static const bool need_reserve_check = std::numeric_limits<size_type>::max() > max_alloc_size;
 		static bool reserve_check_size(const size_type &, const std::false_type &)
 		{
 			return false;
@@ -89,7 +88,7 @@ class dynamic_storage
 			return new_capacity > max_alloc_size;
 		}
 	public:
-		static const size_type max_size = boost::integer_traits<size_type>::const_max;
+		static const size_type max_size = std::numeric_limits<size_type>::max();
 		using iterator = pointer;
 		using const_iterator = const_pointer;
 		dynamic_storage() : m_tag(0u),m_size(0u),m_capacity(0u),m_ptr(nullptr) {}
@@ -376,7 +375,7 @@ struct auto_static_size<T,Size,typename std::enable_if<
 	(sizeof(dynamic_storage<T>) > sizeof(static_vector<T,Size>))
 	>::type>
 {
-	static_assert(Size < boost::integer_traits<std::size_t>::const_max,"Overflow error in auto_static_size.");
+	static_assert(Size < std::numeric_limits<std::size_t>::max(),"Overflow error in auto_static_size.");
 	static const std::size_t value = auto_static_size<T,Size + 1u>::value;
 };
 
@@ -400,7 +399,6 @@ struct check_integral_constant<std::integral_constant<std::size_t,Size>>
 // http://stackoverflow.com/questions/18564497/writing-into-the-last-byte-of-a-class
 // http://www.informit.com/guides/content.aspx?g=cplusplus&seqNum=556
 // http://en.wikipedia.org/wiki/C%2B%2B11#Unrestricted_unions
-// NOTE: here we could potentially share the m_size member as well in many cases.
 template <typename T, typename S>
 union small_vector_union
 {
@@ -508,7 +506,6 @@ union small_vector_union
  * \section type_requirements Type requirements
  *
  * - \p T must satisfy piranha::is_container_element;
- * - \p T must satisfy std::is_standard_layout;
  * - \p S must be an \p std::integral_constant of type \p std::size_t.
  *
  * \section exception_safety Exception safety guarantee
@@ -520,16 +517,18 @@ union small_vector_union
  * After a move operation, the container will be empty.
  *
  * @author Francesco Biscani (bluescarni@gmail.com)
- * 
- * \todo in the dynamic storage, it look like we can use 16-bit ints for the sizes and not increase the total size too much.
- * This means that we could store up to 65k elements as opposed to the 255 in the current implementation.
- * \todo the standard_layout constraint on T seems not to be necessary.
  */
+// NOTE: some possible improvements:
+// - the m_size member of dynamic and static could be made a signed integer, the sign establishing the storage type
+//   and drop the m_tag member. This in principle would allow to squeeze some extra space from the static vector
+//   but not sure this is worth it;
+// - POD optimisations in dynamic storage;
+// - in the dynamic storage, it looks like on 64bit we can bump up the size member to 16 bit without changing size,
+//   thus we could sture ~16000 elements. BUT on 32bit this will change the size.
 template <typename T, typename S = std::integral_constant<std::size_t,0u>>
 class small_vector
 {
 		PIRANHA_TT_CHECK(is_container_element,T);
-		PIRANHA_TT_CHECK(std::is_standard_layout,T);
 		PIRANHA_TT_CHECK(detail::check_integral_constant,S);
 		using u_type = detail::small_vector_union<T,S>;
 		using s_storage = typename u_type::s_storage;
@@ -550,7 +549,7 @@ class small_vector
 		using size_type = size_type_impl;
 	private:
 		// If the size type can assume values larger than d_storage::max_size, then we need to run a check in resize().
-		static const bool need_resize_check = boost::integer_traits<size_type>::const_max > d_storage::max_size;
+		static const bool need_resize_check = std::numeric_limits<size_type>::max() > d_storage::max_size;
 		static bool resize_check_size(const size_type &, const std::false_type &)
 		{
 			return false;
@@ -572,6 +571,19 @@ class small_vector
 		// NOTE: here we should replace with bidirectional tt, if we ever implement it.
 		PIRANHA_TT_CHECK(is_forward_iterator,iterator);
 		PIRANHA_TT_CHECK(is_forward_iterator,const_iterator);
+		// Enabler for ctor from init list.
+		template <typename U>
+		using init_list_enabler = typename std::enable_if<std::is_constructible<T,U const &>::value,int>::type;
+		// Enabler for equality operator.
+		template <typename U>
+		using equality_enabler = typename std::enable_if<is_equality_comparable<U>::value,int>::type;
+		// Enabler for hash.
+		template <typename U>
+		using hash_enabler = typename std::enable_if<is_hashable<U>::value,int>::type;
+		// Enabler for the addition.
+		template <typename U>
+		using add_enabler = typename std::enable_if<
+			std::is_assignable<U &,decltype(std::declval<U const &>() + std::declval<U const &>()) &&>::value,int>::type;
 	public:
 		/// Default constructor.
 		/**
@@ -602,12 +614,27 @@ class small_vector
 		 *
 		 * @throws unspecified any exception thrown by push_back().
 		 */
-		template <typename U, typename = typename std::enable_if<std::is_constructible<T,U const &>::value>::type>
+		template <typename U, init_list_enabler<U> = 0>
 		explicit small_vector(std::initializer_list<U> l)
 		{
 			// NOTE: push_back has strong exception safety.
 			for (const U &x : l) {
 				push_back(T(x));
+			}
+		}
+		/// Constructor from size and value.
+		/**
+		 * This constructor will initialise a vector containing \p size copies of \p value.
+		 *
+		 * @param[in] size the desired vector size.
+		 * @param[in] value the value used to initialise all the elements of the vector.
+		 *
+		 * @throws unspecified any exception thrown by push_back().
+		 */
+		explicit small_vector(const size_type &size, const T &value)
+		{
+			for (size_type i = 0u; i < size; ++i) {
+				push_back(value);
 			}
 		}
 		/// Destructor.
@@ -745,9 +772,7 @@ class small_vector
 		 *
 		 * @throws unspecified any exception thrown by the equality operator of \p T.
 		 */
-		template <typename U = value_type, typename = typename std::enable_if<
-			is_equality_comparable<U>::value
-			>::type>
+		template <typename U = value_type, equality_enabler<U> = 0>
 		bool operator==(const small_vector &other) const
 		{
 			// NOTE: it seems like in C++14 the check on equal sizes is embedded in std::equal
@@ -782,9 +807,7 @@ class small_vector
 		 *
 		 * @throws unspecified any exception thrown by operator==().
 		 */
-		template <typename U = value_type, typename = typename std::enable_if<
-			is_equality_comparable<U>::value
-			>::type>
+		template <typename U = value_type, equality_enabler<U> = 0>
 		bool operator!=(const small_vector &other) const
 		{
 			return !(this->operator==(other));
@@ -796,9 +819,7 @@ class small_vector
 		 *
 		 * @return a hash value for \p this.
 		 */
-		template <typename U = value_type, typename = typename std::enable_if<
-			is_hashable<U>::value
-			>::type>
+		template <typename U = value_type, hash_enabler<U> = 0>
 		std::size_t hash() const noexcept
 		{
 			if (m_union.is_static()) {
@@ -852,8 +873,8 @@ class small_vector
 		/// Vector addition.
 		/**
 		 * \note
-		 * This method is enabled only if \p value_type is addable and assignable, and if the result
-		 * of the addition is convertible to \p value_type.
+		 * This method is enabled only if \p value_type is addable and if the result
+		 * of the addition is move-assignable to \p value_type.
 		 *
 		 * Will compute the element-wise addition of \p this and \p other, storing the result in \p retval.
 		 * In face of exceptions during the addition of two elements, retval will be left in an unspecified
@@ -868,9 +889,7 @@ class small_vector
 		 * - resize(),
 		 * - the addition and assignment operators of \p value_type.
 		 */
-		template <typename U = value_type, typename = typename std::enable_if<
-			std::is_convertible<decltype(std::declval<U const &>() + std::declval<U const &>()),U>::value &&
-			std::is_assignable<value_type &, value_type>::value>::type>
+		template <typename U = value_type, add_enabler<U> = 0>
 		void add(small_vector &retval, const small_vector &other) const
 		{
 			const auto s = size();
@@ -881,17 +900,17 @@ class small_vector
 			std::transform(begin(),end(),other.begin(),retval.begin(),adder<value_type>());
 		}
 	private:
-		// NOTE: need this to silence warnings when operating on short ints: they will get
-		// promoted to int during addition, hence resulting in a warning when casting back down
-		// to short int on return.
 		template <typename U, typename = void>
 		struct adder
 		{
-			U operator()(const U &a, const U &b) const
+			auto operator()(const U &a, const U &b) -> decltype(a + b)
 			{
 				return a + b;
 			}
 		};
+		// NOTE: need this to silence warnings when operating on short ints: they will get
+		// promoted to int during addition, hence resulting in a warning when casting back down
+		// to short int on return.
 		template <typename U>
 		struct adder<U,typename std::enable_if<std::is_integral<U>::value>::type>
 		{

@@ -23,12 +23,12 @@
 #define BOOST_TEST_MODULE kronecker_monomial_test
 #include <boost/test/unit_test.hpp>
 
-#include <boost/integer_traits.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/mpl/for_each.hpp>
 #include <boost/mpl/vector.hpp>
 #include <cstddef>
 #include <initializer_list>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -148,7 +148,7 @@ struct compatibility_tester
 			}
 			BOOST_CHECK(!k1.is_compatible(v2));
 		}
-		k1.set_int(boost::integer_traits<T>::const_max);
+		k1.set_int(std::numeric_limits<T>::max());
 		BOOST_CHECK(!k1.is_compatible(symbol_set({symbol("a"),symbol("b")})));
 		k1.set_int(-1);
 		BOOST_CHECK(k1.is_compatible(symbol_set({symbol("a"),symbol("b")})));
@@ -258,26 +258,40 @@ struct degree_tester
 		BOOST_CHECK(k4.ldegree(vs1) == 0);
 		k_type k5({-1,-1});
 		BOOST_CHECK(k5.degree(vs1) == -2);
-		BOOST_CHECK(k5.degree({"a"},vs1) == -1);
+		using positions = symbol_set::positions;
+		auto ss_to_pos = [](const symbol_set &v, const std::set<std::string> &s) {
+			symbol_set tmp;
+			for (const auto &str: s) {
+				tmp.add(str);
+			}
+			return positions(v,tmp);
+		};
+		BOOST_CHECK(k5.degree(ss_to_pos(vs1,{"a"}),vs1) == -1);
 		// NOTE: here it seems the compilation error arising when only {} is used (as opposed
 		// to std::set<std::string>{}) is a bug in libc++. See:
 		// http://clang-developers.42468.n3.nabble.com/C-11-error-about-initializing-explicit-constructor-with-td4029849.html
-		BOOST_CHECK(k5.degree(std::set<std::string>{},vs1) == 0);
-		BOOST_CHECK(k5.degree({"f"},vs1) == 0);
-		BOOST_CHECK(k5.degree({"a","b"},vs1) == -2);
-		BOOST_CHECK(k5.degree({"a","c"},vs1) == -1);
-		BOOST_CHECK(k5.degree({"d","c"},vs1) == 0);
-		BOOST_CHECK(k5.degree({"d","b"},vs1) == -1);
-		BOOST_CHECK(k5.degree({"A","a"},vs1) == -1);
+		BOOST_CHECK(k5.degree(ss_to_pos(vs1,std::set<std::string>{}),vs1) == 0);
+		BOOST_CHECK(k5.degree(ss_to_pos(vs1,{"f"}),vs1) == 0);
+		BOOST_CHECK(k5.degree(ss_to_pos(vs1,{"a","b"}),vs1) == -2);
+		BOOST_CHECK(k5.degree(ss_to_pos(vs1,{"a","c"}),vs1) == -1);
+		BOOST_CHECK(k5.degree(ss_to_pos(vs1,{"d","c"}),vs1) == 0);
+		BOOST_CHECK(k5.degree(ss_to_pos(vs1,{"d","b"}),vs1) == -1);
+		BOOST_CHECK(k5.degree(ss_to_pos(vs1,{"A","a"}),vs1) == -1);
 		BOOST_CHECK(k5.ldegree(vs1) == -2);
-		BOOST_CHECK(k5.ldegree({"a"},vs1) == -1);
-		BOOST_CHECK(k5.ldegree(std::set<std::string>{},vs1) == 0);
-		BOOST_CHECK(k5.ldegree({"f"},vs1) == 0);
-		BOOST_CHECK(k5.ldegree({"a","b"},vs1) == -2);
-		BOOST_CHECK(k5.ldegree({"a","c"},vs1) == -1);
-		BOOST_CHECK(k5.ldegree({"d","c"},vs1) == 0);
-		BOOST_CHECK(k5.ldegree({"d","b"},vs1) == -1);
-		BOOST_CHECK(k5.ldegree({"A","a"},vs1) == -1);
+		BOOST_CHECK(k5.ldegree(ss_to_pos(vs1,{"a"}),vs1) == -1);
+		BOOST_CHECK(k5.ldegree(ss_to_pos(vs1,std::set<std::string>{}),vs1) == 0);
+		BOOST_CHECK(k5.ldegree(ss_to_pos(vs1,{"f"}),vs1) == 0);
+		BOOST_CHECK(k5.ldegree(ss_to_pos(vs1,{"a","b"}),vs1) == -2);
+		BOOST_CHECK(k5.ldegree(ss_to_pos(vs1,{"a","c"}),vs1) == -1);
+		BOOST_CHECK(k5.ldegree(ss_to_pos(vs1,{"d","c"}),vs1) == 0);
+		BOOST_CHECK(k5.ldegree(ss_to_pos(vs1,{"d","b"}),vs1) == -1);
+		BOOST_CHECK(k5.ldegree(ss_to_pos(vs1,{"A","a"}),vs1) == -1);
+		// Try partials with bogus positions.
+		symbol_set v2({symbol("a"),symbol("b"),symbol("c")});
+		BOOST_CHECK_THROW(k5.degree(ss_to_pos(v2,{"c"}),vs1),std::invalid_argument);
+		BOOST_CHECK_THROW(k5.ldegree(ss_to_pos(v2,{"c"}),vs1),std::invalid_argument);
+		// Wrong symbol set, will not throw because positions are empty.
+		BOOST_CHECK_EQUAL(k5.degree(ss_to_pos(v2,{"d"}),vs1),0);
 	}
 };
 
@@ -497,9 +511,9 @@ struct pow_tester
 		k1 = k_type{2};
 		k_type k2({4});
 		BOOST_CHECK(k1.pow(2,vs) == k2);
-		BOOST_CHECK_THROW(k1.pow(boost::integer_traits<T>::const_max,vs),std::overflow_error);
+		BOOST_CHECK_THROW(k1.pow(std::numeric_limits<T>::max(),vs),std::invalid_argument);
 		k1 = k_type{1};
-		if (std::get<0u>(limits[1u])[0u] < boost::integer_traits<T>::const_max) {
+		if (std::get<0u>(limits[1u])[0u] < std::numeric_limits<T>::max()) {
 			BOOST_CHECK_THROW(k1.pow(std::get<0u>(limits[1u])[0u] + T(1),vs),std::invalid_argument);
 		}
 		k1 = k_type{2};

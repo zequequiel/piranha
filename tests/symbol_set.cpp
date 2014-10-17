@@ -23,11 +23,21 @@
 #define BOOST_TEST_MODULE symbol_set_test
 #include <boost/test/unit_test.hpp>
 
+#include <algorithm>
+#include <boost/lexical_cast.hpp>
+#include <limits>
+#include <list>
+#include <random>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
+#include <vector>
 
 #include "../src/environment.hpp"
 #include "../src/symbol.hpp"
+
+static std::mt19937 rng;
+static const int ntries = 1000;
 
 using namespace piranha;
 
@@ -58,6 +68,30 @@ BOOST_AUTO_TEST_CASE(symbol_set_constructor_test)
 	ss4 = std::move(ss4);
 	BOOST_CHECK(ss4 == symbol_set({symbol("c"),symbol("b"),symbol("a")}));
 	BOOST_CHECK(std::is_nothrow_move_constructible<symbol_set>::value);
+	// Constructor from iterators.
+	std::vector<std::string> vs1 = {"a","b","c"};
+	symbol_set ss5(vs1.begin(),vs1.end());
+	BOOST_CHECK_EQUAL(ss5.size(),3u);
+	auto cmp = [](const symbol &s, const std::string &str) {
+		return s.get_name() == str;
+	};
+	BOOST_CHECK(std::equal(ss5.begin(),ss5.end(),vs1.begin(),cmp));
+	std::vector<std::string> vs2 = {"b","c","a","a","b","c"};
+	BOOST_CHECK((std::is_constructible<symbol_set,decltype(vs2.begin()),decltype(vs2.end())>::value));
+	symbol_set ss6(vs2.begin(),vs2.end());
+	BOOST_CHECK_EQUAL(ss6.size(),3u);
+	BOOST_CHECK(std::equal(ss6.begin(),ss6.end(),vs1.begin(),cmp));
+	std::vector<symbol> vs3({symbol("b"),symbol("c"),symbol("a"),symbol("b"),symbol("a")});
+	symbol_set ss7(vs3.begin(),vs3.end());
+	BOOST_CHECK_EQUAL(ss7.size(),3u);
+	BOOST_CHECK(std::equal(ss7.begin(),ss7.end(),vs1.begin(),cmp));
+	std::list<std::string> ls1 = {"a","b","c"};
+	BOOST_CHECK((std::is_constructible<symbol_set,decltype(ls1.begin()),decltype(ls1.end())>::value));
+	symbol_set ss8(ls1.begin(),ls1.end());
+	BOOST_CHECK_EQUAL(ss8.size(),3u);
+	BOOST_CHECK(std::equal(ss8.begin(),ss8.end(),ls1.begin(),cmp));
+	std::vector<int> vint;
+	BOOST_CHECK((!std::is_constructible<symbol_set,decltype(vint.begin()),decltype(vint.end())>::value));
 }
 
 BOOST_AUTO_TEST_CASE(symbol_set_add_test)
@@ -153,4 +187,150 @@ BOOST_AUTO_TEST_CASE(symbol_set_diff_test)
 	auto ss3 = ss2.diff(ss1);
 	BOOST_CHECK(ss3 == symbol_set({symbol("a"),symbol("c"),symbol("e")}));
 	BOOST_CHECK(ss2.diff(ss2) == symbol_set{});
+}
+
+BOOST_AUTO_TEST_CASE(symbol_set_positions_test)
+{
+	using positions = symbol_set::positions;
+	// Checker for the consistency of the positions class.
+	auto checker = [](const symbol_set &a, const symbol_set &b, const positions &p) {
+		// The position vector cannot have a size larger than b or a.
+		BOOST_CHECK(p.size() <= b.size());
+		BOOST_CHECK(p.size() <= a.size());
+		for (const auto &i: p) {
+			// Any index in positions must be an index valid for a.
+			BOOST_CHECK(i < a.size());
+			// The element of a at index i must be in b somewhere.
+			BOOST_CHECK(std::find(b.begin(),b.end(),a[i]) != b.end());
+		}
+		// Number of elements of b that are in a.
+		const auto nb = std::count_if(b.begin(),b.end(),[&a](const symbol &s) {
+			return std::find(a.begin(),a.end(),s) != a.end();
+		});
+		BOOST_CHECK_EQUAL(unsigned(nb),p.size());
+	};
+	// Some simple cases.
+	{
+	symbol_set a({symbol("b"),symbol("c"),symbol("d"),symbol("e")});
+	symbol_set b({symbol("a"),symbol("b"),symbol("f"),symbol("d")});
+	positions p(a,b);
+	checker(a,b,p);
+	BOOST_CHECK_EQUAL(p.size(),2u);
+	BOOST_CHECK_EQUAL(*p.begin(),0u);
+	BOOST_CHECK_EQUAL(p.begin()[1],2u);
+	BOOST_CHECK_EQUAL(p.back(),2u);
+	}
+	{
+	symbol_set a({symbol("a"),symbol("b"),symbol("c")});
+	symbol_set b({symbol("d"),symbol("e"),symbol("f")});
+	positions p(a,b);
+	checker(a,b,p);
+	BOOST_CHECK_EQUAL(p.size(),0u);
+	}
+	{
+	symbol_set b({symbol("a"),symbol("b"),symbol("c")});
+	symbol_set a({symbol("d"),symbol("e"),symbol("f")});
+	positions p(a,b);
+	checker(a,b,p);
+	BOOST_CHECK_EQUAL(p.size(),0u);
+	}
+	{
+	symbol_set a({symbol("a"),symbol("b"),symbol("c")});
+	symbol_set b({symbol("c"),symbol("e"),symbol("f")});
+	positions p(a,b);
+	checker(a,b,p);
+	BOOST_CHECK_EQUAL(p.size(),1u);
+	BOOST_CHECK_EQUAL(p.begin()[0],2u);
+	BOOST_CHECK_EQUAL(p.back(),2u);
+	}
+	{
+	// Interleaved with no overlapping.
+	symbol_set a({symbol("b"),symbol("f"),symbol("q")});
+	symbol_set b({symbol("a"),symbol("e"),symbol("g"),symbol("r")});
+	positions p(a,b);
+	checker(a,b,p);
+	BOOST_CHECK_EQUAL(p.size(),0u);
+	}
+	{
+	// Interleaved with some overlapping.
+	symbol_set a({symbol("b"),symbol("f"),symbol("q")});
+	symbol_set b({symbol("a"),symbol("b"),symbol("f"),symbol("g"),symbol("q"),symbol("r")});
+	positions p(a,b);
+	checker(a,b,p);
+	BOOST_CHECK_EQUAL(p.size(),3u);
+	BOOST_CHECK_EQUAL(p.begin()[0],0u);
+	BOOST_CHECK_EQUAL(p.begin()[1],1u);
+	BOOST_CHECK_EQUAL(p.begin()[2],2u);
+	BOOST_CHECK_EQUAL(p.back(),2u);
+	}
+	// Random testing.
+	std::uniform_int_distribution<int> dist(std::numeric_limits<int>::min(),std::numeric_limits<int>::max() - 1);
+	for (int i = 0; i < ntries; ++i) {
+		{
+		// First check with completely different symbols.
+		symbol_set a, b;
+		for (int j = 0; j < 6; ++j) {
+			try {
+				int tmp = dist(rng);
+				a.add(boost::lexical_cast<std::string>(tmp));
+				b.add(boost::lexical_cast<std::string>(tmp + 1));
+			} catch (...) {
+				// Just ignore any existing symbol (unlikely).
+			}
+		}
+		positions p(a,b);
+		checker(a,b,p);
+		}
+		{
+		// All equal
+		symbol_set a, b;
+		for (int j = 0; j < 6; ++j) {
+			try {
+				int tmp = dist(rng);
+				a.add(boost::lexical_cast<std::string>(tmp));
+				b.add(boost::lexical_cast<std::string>(tmp));
+			} catch (...) {}
+		}
+		positions p(a,b);
+		checker(a,b,p);
+		}
+		{
+		// a larger than b, some elements shared.
+		symbol_set a, b;
+		for (int j = 0; j < 6; ++j) {
+			try {
+				int tmp = dist(rng);
+				a.add(boost::lexical_cast<std::string>(tmp));
+				b.add(boost::lexical_cast<std::string>(tmp));
+			} catch (...) {}
+		}
+		for (int j = 0; j < 6; ++j) {
+			try {
+				int tmp = dist(rng);
+				a.add(boost::lexical_cast<std::string>(tmp));
+			} catch (...) {}
+		}
+		positions p(a,b);
+		checker(a,b,p);
+		}
+		{
+		// b larger than a, some elements shared.
+		symbol_set a, b;
+		for (int j = 0; j < 6; ++j) {
+			try {
+				int tmp = dist(rng);
+				a.add(boost::lexical_cast<std::string>(tmp));
+				b.add(boost::lexical_cast<std::string>(tmp));
+			} catch (...) {}
+		}
+		for (int j = 0; j < 6; ++j) {
+			try {
+				int tmp = dist(rng);
+				b.add(boost::lexical_cast<std::string>(tmp));
+			} catch (...) {}
+		}
+		positions p(a,b);
+		checker(a,b,p);
+		}
+	}
 }

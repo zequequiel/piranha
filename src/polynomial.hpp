@@ -95,10 +95,6 @@ struct polynomial_tag {};
  * is a multivariate polynomial with double-precision coefficients and \p short exponents, up to 5 of which
  * will be stored in static storage.
  @code
- polynomial<double,univariate_monomial<int>>
- @endcode
- * is a univariate polynomial with double-precision coefficients and \p int exponent.
- @code
  polynomial<double,kronecker_monomial<>>
  @endcode
  * is a multivariate polynomial with double-precision coefficients and integral exponents packed into a piranha::kronecker_monomial.
@@ -190,7 +186,8 @@ class polynomial:
 			// Get the partial degree of the monomial in integral form.
 			integer degree;
 			try {
-				degree = math::integral_cast(term.m_key.degree({s.get_name()},this->m_symbol_set));
+				symbol_set::positions pos(this->m_symbol_set,symbol_set{symbol(s.get_name())});
+				degree = math::integral_cast(term.m_key.degree(pos,this->m_symbol_set));
 			} catch (const std::invalid_argument &) {
 				piranha_throw(std::invalid_argument,
 					"unable to perform polynomial integration: cannot extract the integral form of an exponent");

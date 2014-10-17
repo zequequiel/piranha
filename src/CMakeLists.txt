@@ -27,10 +27,10 @@ SET(HEADERS_LIST
 	series_multiplier.hpp
 	array_key.hpp
 	symbol.hpp
+	safe_cast.hpp
 	t_substitutable_series.hpp
 	print_coefficient.hpp
 	type_traits.hpp
-	univariate_monomial.hpp
 	mp_integer.hpp
 	mp_rational.hpp
 	math.hpp
@@ -56,7 +56,6 @@ SET(DETAIL_HEADERS_LIST
 	detail/math_tt_fwd.hpp
 	detail/sfinae_types.hpp
 	detail/real_fwd.hpp
-	detail/degree_commons.hpp
 	detail/base_term_fwd.hpp
 	detail/km_commons.hpp
 	detail/mp_rational_fwd.hpp

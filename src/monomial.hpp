@@ -35,13 +35,13 @@
 #include <utility>
 
 #include "array_key.hpp"
-#include "detail/degree_commons.hpp"
 #include "detail/prepare_for_print.hpp"
 #include "config.hpp"
 #include "forwarding.hpp"
 #include "math.hpp"
 #include "mp_integer.hpp"
 #include "mp_rational.hpp"
+#include "safe_cast.hpp"
 #include "symbol_set.hpp"
 #include "symbol.hpp"
 #include "type_traits.hpp"
@@ -53,11 +53,12 @@ namespace piranha
 /**
  * This class extends piranha::array_key to define a series key type suitable as monomial in polynomial terms.
  * 
- * This class satisfies the piranha::is_key, piranha::key_has_degree and piranha::key_has_ldegree type traits.
+ * This class satisfies the piranha::is_key type trait.
  * 
  * \section type_requirements Type requirements
  * 
- * \p T and \p S must be suitable for use as first and third template arguments in piranha::array_key.
+ * \p T and \p S must be suitable for use as first and third template arguments in piranha::array_key. Additionally,
+ * \p T must satisfy the piranha::has_is_zero type trait.
  * 
  * \section exception_safety Exception safety guarantee
  * 
@@ -67,19 +68,15 @@ namespace piranha
  * 
  * Move semantics is equivalent to piranha::array_key's move semantics.
  * 
- * \todo think about introducing a monomial concept that embeds maybe the degreekey concept, if the need to treat generically the various
- * monomial classes arises.
- * \todo think about modifying the arithmetic functors to return integer when operating on integral values, to avoid possible overflows
- * when computing degree and friends. This change could go into detail/degree_commons to propagate it everywhere.
- * \todo consider disabling exponentiation if exponent is an integral or integer and the exponent is floating point or real, or something
- * along these lines. Probably we need that in general (i.e., also for coefficients) in order to avoid surprises when ints interact with
- * floats and are then cast back to int.
+ * \todo the linear argument method should not probably be conditionally enabled, as we rely on it for the
+ * polynomial to poisson series stuff. Its requirements should become class requirements.
  * 
  * @author Francesco Biscani (bluescarni@gmail.com)
  */
 template <typename T, typename S = std::integral_constant<std::size_t,0u>>
 class monomial: public array_key<T,monomial<T,S>,S>
 {
+		PIRANHA_TT_CHECK(has_is_zero,T);
 		using base = array_key<T,monomial<T,S>,S>;
 		// Eval and subs type definition.
 		template <typename U, typename = void>
@@ -109,23 +106,6 @@ class monomial: public array_key<T,monomial<T,S>,S>
 				x = static_cast<U>(x + y);
 			}
 		};
-		template <typename U, typename V, typename = void>
-		struct in_place_multiplier
-		{
-			void operator()(U &x, const V &y) const
-			{
-				x *= y;
-			}
-		};
-		template <typename U, typename V>
-		struct in_place_multiplier<U,V,typename std::enable_if<(std::is_integral<U>::value && std::is_integral<V>::value) ||
-			(std::is_integral<U>::value && std::is_floating_point<V>::value)>::type>
-		{
-			void operator()(U &x, const V &y) const
-			{
-				x = static_cast<U>(x * y);
-			}
-		};
 		template <typename U, typename = void>
 		struct in_place_subber
 		{
@@ -142,6 +122,54 @@ class monomial: public array_key<T,monomial<T,S>,S>
 				x = static_cast<U>(x - y);
 			}
 		};
+		// Enabler for ctor from init list.
+		template <typename U>
+		using init_list_enabler = typename std::enable_if<std::is_constructible<base,std::initializer_list<U>>::value,int>::type;
+		// Enabler for multiplication.
+		template <typename U>
+		using multiply_enabler = decltype(std::declval<U const &>().vector_add(std::declval<U &>(),std::declval<U const &>()));
+		// Enabler for linear argument.
+		template <typename U>
+		using linarg_enabler = typename std::enable_if<has_integral_cast<U>::value,int>::type;
+		// Enabler and machinery for pow.
+		// When the exponent is an integral, promote to integer during exponentiation
+		// for safe operations.
+		template <typename U, typename std::enable_if<std::is_integral<U>::value,int>::type = 0>
+		static integer get_pow_arg(const U &n)
+		{
+			return integer(n);
+		}
+		// Otherwise, just return the unchanged reference.
+		template <typename U, typename std::enable_if<!std::is_integral<U>::value,int>::type = 0>
+		static const U &get_pow_arg(const U &x)
+		{
+			return x;
+		}
+		using pow_type = typename std::conditional<std::is_integral<T>::value,integer &&,const T &>::type;
+		template <typename U>
+		using pow_enabler = typename std::enable_if<has_safe_cast<typename base::value_type,
+			decltype(std::declval<pow_type>() * std::declval<const U &>())>::value,int>::type;
+		// Machinery to determine the degree type.
+		template <typename U>
+		using add_type = decltype(std::declval<const U &>() + std::declval<const U &>());
+		// No type defined in here, will sfinae out.
+		template <typename U, typename = void>
+		struct degree_type_
+		{};
+		template <typename U>
+		struct degree_type_<U,typename std::enable_if<std::is_integral<U>::value>::type>
+		{
+			using type = integer;
+		};
+		template <typename U>
+		struct degree_type_<U,typename std::enable_if<!std::is_integral<U>::value && std::is_constructible<add_type<U>,int>::value &&
+			is_addable_in_place<add_type<U>,U>::value>::type>
+		{
+			using type = add_type<U>;
+		};
+		// The final alias.
+		template <typename U>
+		using degree_type = typename degree_type_<U>::type;
 	public:
 		/// Defaulted default constructor.
 		monomial() = default;
@@ -155,15 +183,13 @@ class monomial: public array_key<T,monomial<T,S>,S>
 		 *
 		 * @see piranha::array_key's constructor from initializer list.
 		 */
-		template <typename U, typename = typename std::enable_if<std::is_constructible<base,std::initializer_list<U>>::value>::type>
+		template <typename U, init_list_enabler<U> = 0>
 		explicit monomial(std::initializer_list<U> list):base(list) {}
 		PIRANHA_FORWARDING_CTOR(monomial,base)
 		/// Trivial destructor.
 		~monomial()
 		{
 			PIRANHA_TT_CHECK(is_key,monomial);
-			PIRANHA_TT_CHECK(key_has_degree,monomial);
-			PIRANHA_TT_CHECK(key_has_ldegree,monomial);
 		}
 		/// Defaulted copy assignment operator.
 		monomial &operator=(const monomial &) = default;
@@ -234,93 +260,106 @@ class monomial: public array_key<T,monomial<T,S>,S>
 		}
 		/// Degree.
 		/**
-		 * Degree of the monomial.
-		 * 
+		 * \note
+		 * This method is enabled only if \p T is addable and the type resulting from the addition is constructible from \p int
+		 * and monomial::value_type can be added in-place to it.
+		 *
+		 * This method will return the degree of the monomial, computed via the summation of the exponents of the monomial.
+		 * If \p T is a C++ integral type, then the type of the degree will be piranha::integer. Otherwise, the type of the degree
+		 * is the type resulting from the addition of the exponents.
+		 *
 		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return the summation of all the exponents of the monomial, or <tt>value_type(0)</tt> if the size
-		 * of the monomial is zero.
-		 * 
+		 *
+		 * @return the degree of the monomial.
+		 *
 		 * @throws std::invalid_argument if the sizes of \p args and \p this differ.
-		 * @throws unspecified any exception thrown by the constructor and the addition and assignment operators of \p value_type.
+		 * @throws unspecified any exception thrown by the invoked constructor or arithmetic operators.
 		 */
-		typename base::value_type degree(const symbol_set &args) const
+		template <typename U = T>
+		degree_type<U> degree(const symbol_set &args) const
 		{
-			return detail::monomial_degree<typename base::value_type>(*this,in_place_adder<typename base::value_type>(),args);
-		}
-		/// Low degree.
-		/**
-		 * Analogous to the degree.
-		 * 
-		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return the output of degree().
-		 * 
-		 * @throws unspecified any exception thrown by degree().
-		 */
-		typename base::value_type ldegree(const symbol_set &args) const
-		{
-			return degree(args);
+			// This is a fast check, better always to keep it.
+			if (unlikely(args.size() != this->size())) {
+				piranha_throw(std::invalid_argument,"invalid arguments set");
+			}
+			degree_type<U> retval(0);
+			for (const auto &x: *this) {
+				retval += x;
+			}
+			return retval;
 		}
 		/// Partial degree.
 		/**
-		 * Partial degree of the monomial: only the symbols with names in \p active_args are considered during the computation
-		 * of the degree. Symbols in \p active_args not appearing in \p args are not considered.
-		 * 
-		 * @param[in] active_args names of the symbols that will be considered in the computation of the partial degree of the monomial.
+		 * \note
+		 * This method is enabled only if \p T is addable and the type resulting from the addition is constructible from \p int
+		 * and monomial::value_type can be added in-place to it.
+		 *
+		 * This method will return the partial degree of the monomial, computed via the summation of the exponents of the monomial.
+		 * If \p T is a C++ integral type, then the type of the degree will be piranha::integer. Otherwise, the type of the degree
+		 * is the type resulting from the addition of the exponents.
+		 *
+		 * The \p p argument is used to indicate which exponents are to be taken into account when computing the partial degree.
+		 * Exponents not in \p p will be discarded during the computation of the partial degree.
+		 *
+		 * @param[in] p positions of the symbols to be considered.
 		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return the summation of all the exponents of the monomial corresponding to the symbols in
-		 * \p active_args, or <tt>value_type(0)</tt> if no symbols in \p active_args appear in \p args.
-		 * 
-		 * @throws std::invalid_argument if the sizes of \p args and \p this differ.
-		 * @throws unspecified any exception thrown by the constructor and the addition and assignment operators of \p value_type.
+		 *
+		 * @return the partial degree of the monomial.
+		 *
+		 * @throws std::invalid_argument if the sizes of \p args and \p this differ, or if \p p is
+		 * not compatible with the monomial.
+		 * @throws unspecified any exception thrown by the invoked constructor or arithmetic operators.
 		 */
-		typename base::value_type degree(const std::set<std::string> &active_args, const symbol_set &args) const
+		template <typename U = T>
+		degree_type<U> degree(const symbol_set::positions &p, const symbol_set &args) const
 		{
-			return detail::monomial_partial_degree<typename base::value_type>(*this,in_place_adder<typename base::value_type>(),active_args,args);
+			if (unlikely(args.size() != this->size() || (p.size() && p.back() >= this->size()))) {
+				piranha_throw(std::invalid_argument,"invalid arguments set or positions");
+			}
+			auto cit = this->begin();
+			degree_type<U> retval(0);
+			for (const auto &i: p) {
+				retval += cit[i];
+			}
+			return retval;
 		}
-		/// Partial low degree.
-		/**
-		 * Analogous to the partial degree.
-		 * 
-		 * @param[in] active_args names of the symbols that will be considered in the computation of the partial low degree of the monomial.
-		 * @param[in] args reference set of piranha::symbol.
-		 * 
-		 * @return the output of degree().
-		 * 
-		 * @throws unspecified any exception thrown by degree().
-		 */
-		typename base::value_type ldegree(const std::set<std::string> &active_args, const symbol_set &args) const
+		/// Low degree (equivalent to the degree).
+		template <typename U = T>
+		degree_type<U> ldegree(const symbol_set &args) const
 		{
-			return degree(active_args,args);
+			return degree(args);
+		}
+		/// Partial low degree (equivalent to the partial degree).
+		template <typename U = T>
+		degree_type<U> ldegree(const symbol_set::positions &p, const symbol_set &args) const
+		{
+			return degree(p,args);
 		}
 		/// Multiply monomial.
 		/**
 		 * \note
-		 * This method is enabled only if the underlying call to piranha::array_key::add()
+		 * This method is enabled only if the underlying call to piranha::array_key::vector_add(()
 		 * is well-formed.
 		 *
 		 * Multiplies \p this by \p other and stores the result in \p retval. The exception safety
-		 * guarantee is the same as for piranha::array_key::add().
+		 * guarantee is the same as for piranha::array_key::vector_add().
 		 * 
 		 * @param[out] retval return value.
 		 * @param[in] other argument of multiplication.
 		 * @param[in] args reference set of arguments.
 		 * 
 		 * @throws std::invalid_argument if the sizes of \p args and \p this differ.
-		 * @throws unspecified any exception thrown by piranha::array_key::add().
+		 * @throws unspecified any exception thrown by piranha::array_key::vector_add().
 		 *
-		 * @return the return value of piranha::array_key::add().
+		 * @return the return value of piranha::array_key::vector_add().
 		 */
-		template <typename U = monomial>
-		auto multiply(monomial &retval, const monomial &other, const symbol_set &args) const -> decltype(
-			std::declval<U const &>().add(std::declval<U &>(),std::declval<U const &>()))
+		template <typename U = monomial, typename = multiply_enabler<U>>
+		void multiply(monomial &retval, const monomial &other, const symbol_set &args) const
 		{
 			if(unlikely(other.size() != args.size())) {
 				piranha_throw(std::invalid_argument,"invalid size of arguments set");
 			}
-			this->add(retval,other);
+			this->vector_add(retval,other);
 		}
 		/// Name of the linear argument.
 		/**
@@ -336,8 +375,7 @@ class monomial: public array_key<T,monomial<T,S>,S>
 		 * 
 		 * @throws std::invalid_argument if the monomial is not linear or if the sizes of \p args and \p this differ.
 		 */
-		template <typename U = typename base::value_type, typename = typename std::enable_if<
-			has_integral_cast<U>::value>::type>
+		template <typename U = typename base::value_type, linarg_enabler<U> = 0>
 		std::string linear_argument(const symbol_set &args) const
 		{
 			if (!is_compatible(args)) {
@@ -370,10 +408,13 @@ class monomial: public array_key<T,monomial<T,S>,S>
 		/// Monomial exponentiation.
 		/**
 		 * \note
-		 * This method is enabled if the exponent type is multipliable in-place by \p U.
+		 * This method is enabled if the exponent type (or its promoted piranha::integer counterpart)
+		 * is multipliable by \p U and the result type can be cast safely back to the exponent type.
 		 *
 		 * Will return a monomial corresponding to \p this raised to the <tt>x</tt>-th power. The exponentiation
-		 * is computed via in-place multiplication of the exponents by \p x.
+		 * is computed via the multiplication of the exponents by \p x. If the exponent type is a C++
+		 * integral type, each exponent will be promoted to piranha::integer before the exponentiation
+		 * takes place.
 		 * 
 		 * @param[in] x exponent.
 		 * @param[in] args reference set of piranha::symbol.
@@ -382,22 +423,21 @@ class monomial: public array_key<T,monomial<T,S>,S>
 		 * 
 		 * @throws std::invalid_argument if the sizes of \p args and \p this differ.
 		 * @throws unspecified any exception thrown by monomial copy construction
-		 * or in-place multiplication of exponents by \p x.
+		 * or in-place multiplication of exponents by \p x, and by the invoked
+		 * operations on piranha::integer, if any.
 		 */
-		template <typename U, typename = typename std::enable_if<is_multipliable_in_place<typename base::value_type,U>::value>::type>
+		template <typename U, pow_enabler<U> = 0>
 		monomial pow(const U &x, const symbol_set &args) const
 		{
-			// NOTE: here it might make sense to allow this only if retval[i] * x has the type of
-			// retval[i], in order to avoid int ** rational resulting in nasty surprises.
 			typedef typename base::size_type size_type;
 			if (!is_compatible(args)) {
 				piranha_throw(std::invalid_argument,"invalid size of arguments set");
 			}
-			monomial retval(*this);
+			// Init with zeroes.
+			monomial retval(args);
 			const size_type size = retval.size();
-			in_place_multiplier<typename base::value_type,U> m;
 			for (decltype(retval.size()) i = 0u; i < size; ++i) {
-				m(retval[i],x);
+				retval[i] = safe_cast<typename base::value_type>(get_pow_arg((*this)[i]) * x);
 			}
 			return retval;
 		}

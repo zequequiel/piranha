@@ -24,7 +24,10 @@
 #include <algorithm>
 #include <initializer_list>
 #include <iterator>
+#include <set>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 #include "config.hpp"
@@ -72,9 +75,81 @@ class symbol_set
 			}
 			return true;
 		}
+		// Enabler for ctor from iterator.
+		template <typename Iterator, typename Symbol>
+		using it_ctor_enabler = typename std::enable_if<is_input_iterator<Iterator>::value &&
+			std::is_constructible<Symbol,decltype(*(std::declval<const Iterator &>()))>::value,int>::type;
 	public:
 		/// Size type.
 		typedef std::vector<symbol>::size_type size_type;
+		/// Positions class.
+		/**
+		 * This is a small utility class that can be used to determine the positions,
+		 * in a piranha::symbol_set \p a, of the symbols in the piranha::symbol_set \p b.
+		 * The positions are stored internally in an \p std::vector which is guaranteed
+		 * to be sorted in ascending order and which can be accessed via the iterators
+		 * provided by this class. If a symbol which is present in \p b is not present in
+		 * \p a, then it will be ignored.
+		 *
+		 * For instance, if the set \p a contains the symbols <tt>[B,C,D,E]</tt> and \p b
+		 * contains <tt>[A,B,D,F]</tt>, then an instance of this class constructed passing
+		 * \p a and \p b as parameters will contain the vector <tt>[0,2]</tt>.
+		 */
+		class positions
+		{
+			public:
+				/// Const iterator.
+				using const_iterator = std::vector<size_type>::const_iterator;
+				/// Value type.
+				/**
+				 * The positions are represented using the size type of piranha::symbol_set.
+				 */
+				using value_type = size_type;
+				explicit positions(const symbol_set &, const symbol_set &);
+				/// Deleted copy constructor.
+				positions(const positions &) = delete;
+				/// Defaulted move constructor.
+				positions(positions &&) = default;
+				/// Deleted copy assignment operator.
+				positions &operator=(const positions &) = delete;
+				/// Deleted move assignment operator.
+				positions &operator=(positions &&) = delete;
+				/// Begin iterator.
+				/**
+				 * @return an iterator to the begin of the internal vector.
+				 */
+				const_iterator begin() const
+				{
+					return m_values.begin();
+				}
+				/// End iterator.
+				/**
+				 * @return an iterator to the end of the internal vector.
+				 */
+				const_iterator end() const
+				{
+					return m_values.end();
+				}
+				/// Last element.
+				/**
+				 * @return a const reference to the last element.
+				 */
+				const size_type &back() const
+				{
+					piranha_assert(m_values.size());
+					return m_values.back();
+				}
+				/// Size.
+				/**
+				 * @return the size of the internal vector.
+				 */
+				std::vector<size_type>::size_type size() const
+				{
+					return m_values.size();
+				}
+			private:
+				std::vector<size_type> m_values;
+		};
 		/// Const iterator.
 		typedef std::vector<symbol>::const_iterator const_iterator;
 		/// Defaulted default constructor.
@@ -99,9 +174,41 @@ class symbol_set
 		 */
 		explicit symbol_set(std::initializer_list<symbol> l)
 		{
+			// NOTE: for these types of initialisations from other containers
+			// it might make sense eventually to avoid all these adds, and do
+			// the sorting and elimination of duplicates in one pass to lower
+			// algorithmic complexity.
 			for (const auto &s: l) {
 				add(s);
 			}
+		}
+		/// Constructor from range.
+		/**
+		 * \note
+		 * This constructor is enabled only if \p Iterator is an input iterator and
+		 * piranha::symbol is constructible from its value type.
+		 *
+		 * The set will be initialised with symbols constructed from the elements of the range.
+		 *
+		 * @param[in] begin begin iterator.
+		 * @param[in] end end iterator.
+		 *
+		 * @throws unspecified any exception thrown by operations on standard containers or by
+		 * the invoked constructor of piranha::symbol.
+		 */
+		// NOTE: the templated Symbol here is apparently necessary to prevent an ICE in the intel
+		// compiler. It should go eventually.
+		template <typename Iterator, typename Symbol = symbol, it_ctor_enabler<Iterator,Symbol> = 0>
+		explicit symbol_set(const Iterator &begin, const Iterator &end)
+		{
+			// NOTE: this is one possible way of doing this, probably a sorted vector
+			// with std::unique will be faster. Also, this can be shared with the ctor
+			// from init list which can be furtherly generalised.
+			std::set<symbol> s_set;
+			for (Iterator it = begin; it != end; ++it) {
+				s_set.emplace(*it);
+			}
+			std::copy(s_set.begin(),s_set.end(),std::back_inserter(m_values));
 		}
 		/// Copy assignment operator.
 		/**
@@ -312,6 +419,35 @@ class symbol_set
 	private:
 		std::vector<symbol> m_values;
 };
+
+/// Constructor from sets.
+/**
+ * The internal positions vector will contain the positions in \p a of the elements
+ * of \p b appearing in the set \p a.
+ *
+ * @param[in] a first set.
+ * @param[in] b second set.
+ *
+ * @throws unspecified any exception thrown by memory errors in standard containers.
+ */
+inline symbol_set::positions::positions(const symbol_set &a, const symbol_set &b)
+{
+	size_type ia = 0u, ib = 0u;
+	while (true) {
+		if (ia == a.size() || ib == b.size()) {
+			break;
+		}
+		if (a[ia] == b[ib]) {
+			m_values.push_back(ia);
+			++ia;
+			++ib;
+		} else if (a[ia] < b[ib]) {
+			++ia;
+		} else {
+			++ib;
+		}
+	}
+}
 
 }
 
