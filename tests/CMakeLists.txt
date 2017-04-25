@@ -1,3 +1,5 @@
+include(YACMACompilerLinkerSettings)
+
 # Setup for the split compilation of tests.
 
 # NOTE: this needs to be a macro since it is modifying the external variable _PIRANHA_TEST_NUM.
@@ -14,9 +16,13 @@ macro(ADD_PIRANHA_TESTCASE arg1)
 			target_compile_definitions(${arg1} PRIVATE PIRANHA_RUN_ON_VALGRIND)
 		endif()
 		target_link_libraries(${arg1} piranha Boost::system Boost::filesystem)
-		set_property(TARGET ${arg1} PROPERTY CXX_STANDARD 11)
-    set_property(TARGET ${arg1} PROPERTY CXX_STANDARD_REQUIRED YES)
-    set_property(TARGET ${arg1} PROPERTY CXX_EXTENSIONS NO)
+		# NOTE: for clang-cl, cmake tries to set -std=c++11 here, which makes
+		# it error out. Disable it as MSVC 2015 is implicitly C++14 anyway.
+		if(NOT (YACMA_COMPILER_IS_MSVC AND YACMA_COMPILER_IS_CLANGXX))
+			set_property(TARGET ${arg1} PROPERTY CXX_STANDARD 11)
+    	set_property(TARGET ${arg1} PROPERTY CXX_STANDARD_REQUIRED YES)
+    	set_property(TARGET ${arg1} PROPERTY CXX_EXTENSIONS NO)
+		endif()
 		add_test("${arg1}" "${arg1}")
 	endif()
 endmacro()
